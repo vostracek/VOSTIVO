@@ -1,0 +1,35 @@
+{
+  "name": "vostivo",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Vostivo monorepo — mobile-first strength/hypertrophy training system",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=24.20.0 <25.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:unit": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\" --ignore-unknown",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\" --ignore-unknown",
+    "db:generate": "pnpm --filter @vostivo/database db:generate",
+    "db:migrate": "pnpm --filter @vostivo/database db:migrate",
+    "db:bootstrap-roles": "pnpm --filter @vostivo/database db:bootstrap-roles",
+    "db:bootstrap-pgboss": "pnpm --filter @vostivo/database db:bootstrap-pgboss",
+    "boundaries:check": "depcruise --config .dependency-cruiser.cjs packages apps/api/src apps/worker/src"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "dependency-cruiser": "18.2.0",
+    "eslint": "10.9.1",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.6",
+    "turbo": "2.10.12",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.69.0"
+  }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "app"."athlete_profiles" ADD COLUMN "training_time_zone" text;

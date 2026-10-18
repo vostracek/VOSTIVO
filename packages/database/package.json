@@ -1,0 +1,42 @@
+{
+  "name": "@vostivo/database",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/migrate.ts",
+    "db:bootstrap-roles": "tsx src/bootstrap-roles.ts",
+    "db:bootstrap-pgboss": "tsx src/bootstrap-pgboss.ts",
+    "db:seed:dev-plan": "tsx src/seed-dev-plan.ts",
+    "db:manual:reset": "tsx src/bootstrap-manual-db.ts"
+  },
+  "dependencies": {
+    "@vostivo/config": "workspace:*",
+    "@vostivo/observability": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "pg-boss": "12.32.0",
+    "postgres": "3.4.9",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "drizzle-kit": "0.31.10",
+    "tsx": "4.23.13",
+    "typescript": "6.0.3",
+    "uuidv7": "1.2.1",
+    "vitest": "4.1.11"
+  }
+}

@@ -1,0 +1,10 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+allowBuilds:
+  # Pure telemetry/analytics postinstall ping — not needed functionally.
+  "@scarf/scarf": false
+  # Downloads the native esbuild binary (used transitively by tsx/vitest) — required.
+  esbuild: true
+  # Downloads a native resolver binary used by ESLint's import resolution — required.
+  unrs-resolver: true

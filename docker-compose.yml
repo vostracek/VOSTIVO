@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vostivo
+      POSTGRES_PASSWORD: vostivo
+      POSTGRES_DB: vostivo_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - vostivo_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  vostivo_postgres_data:

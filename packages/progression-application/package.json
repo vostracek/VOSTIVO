@@ -1,0 +1,34 @@
+{
+  "name": "@vostivo/progression-application",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
+  },
+  "dependencies": {
+    "@vostivo/database": "workspace:*",
+    "@vostivo/domain": "workspace:*",
+    "@vostivo/training-engine": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "pg-boss": "12.32.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
+  }
+}

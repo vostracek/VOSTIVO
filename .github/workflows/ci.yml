@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  NODE_ENV: local
+  # Least-privilege API runtime role — same role apps/api's DatabaseModule
+  # connects with (Security Hardening Follow-Up V1, "Postgres least
+  # privilege"). Created by the "Bootstrap least-privilege DB role" step
+  # below, never by the Postgres service container itself.
+  DATABASE_URL: postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev
+  # Migration/admin role — the Postgres service container's own bootstrap
+  # user, matching the existing local docker-compose convention. Only
+  # `pnpm db:migrate`/`pnpm db:bootstrap-roles` ever use this.
+  MIGRATION_DATABASE_URL: postgres://vostivo:vostivo@localhost:5432/vostivo_dev
+  # Local-CI-only password for the role the bootstrap step below creates —
+  # not a production secret; see packages/database/.env.example.
+  VOSTIVO_API_DB_PASSWORD: vostivo_api
+  # Real Postgres, never a real Supabase project — the identity-resolution
+  # and workout-sync integration suites only ever verify local JWKS
+  # verification logic against a placeholder issuer URL.
+  SUPABASE_URL: https://placeholder.supabase.co
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: vostivo
+          POSTGRES_PASSWORD: vostivo
+          POSTGRES_DB: vostivo_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.20.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Architectural boundary check
+        run: pnpm boundaries:check
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Apply database migrations
+        run: pnpm db:migrate
+
+      - name: Bootstrap least-privilege DB role
+        run: pnpm db:bootstrap-roles
+
+      - name: Bootstrap pg-boss schema and least-privilege grants
+        # Must run AFTER "Bootstrap least-privilege DB role" — it grants to
+        # the vostivo_api role, which that step creates.
+        run: pnpm db:bootstrap-pgboss
+
+      - name: Integration tests (real Postgres, least-privilege runtime role)
+        run: pnpm --filter @vostivo/api test:integration
+
+      - name: Integration tests (real Postgres + real pg-boss — shared progression runtime)
+        run: pnpm --filter @vostivo/progression-application test:integration
+
+      - name: Integration tests (real Postgres + real pg-boss — worker)
+        run: pnpm --filter @vostivo/worker test:integration

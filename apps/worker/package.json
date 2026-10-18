@@ -1,0 +1,31 @@
+{
+  "name": "@vostivo/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
+  },
+  "dependencies": {
+    "@vostivo/config": "workspace:*",
+    "@vostivo/database": "workspace:*",
+    "@vostivo/domain": "workspace:*",
+    "@vostivo/observability": "workspace:*",
+    "@vostivo/progression-application": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "pg-boss": "12.32.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "tsx": "4.23.13",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
+  }
+}

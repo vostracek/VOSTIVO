@@ -1,0 +1,11 @@
+import { defineConfig } from "vitest/config";
+
+/**
+ * Real-Postgres/real-pg-boss worker tests. Run via `pnpm test:integration`,
+ * not part of the default `pnpm test` gate.
+ */
+export default defineConfig({
+  test: {
+    include: ["src/**/*.integration.test.ts"],
+  },
+});

@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+.expo/
+.turbo/
+*.tsbuildinfo
+
+# Env files (never commit real secrets)
+.env
+.env.*
+!.env.example
+
+# Test / coverage
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+
+# Native mobile build artifacts
+apps/mobile/ios/
+apps/mobile/android/
+apps/mobile/.expo/
+
+# Database
+packages/database/drizzle/meta/*.json.bak
+
+# Misc
+*.local
+
+# Local auth/signing material (local JWKS + private signing key) — never commit
+apps/api/.local/

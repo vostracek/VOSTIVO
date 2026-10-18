@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true
+  },
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    { "path": "../../packages/config/tsconfig.build.json" },
+    { "path": "../../packages/database/tsconfig.build.json" },
+    { "path": "../../packages/domain/tsconfig.build.json" },
+    { "path": "../../packages/observability/tsconfig.build.json" },
+    { "path": "../../packages/progression-application/tsconfig.build.json" }
+  ]
+}

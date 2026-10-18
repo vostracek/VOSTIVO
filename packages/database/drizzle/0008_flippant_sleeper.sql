@@ -1,0 +1,1 @@
+ALTER TABLE "app"."performed_exercises" ALTER COLUMN "exercise_ref" SET NOT NULL;

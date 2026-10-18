@@ -1,0 +1,3538 @@
+{
+  "id": "c5a7ceef-fb58-4fad-a272-c5a82b93d056",
+  "prevId": "49f05f24-584f-4490-9bc4-5ed7cd8ad804",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.bootstrap_health_check": {
+      "name": "bootstrap_health_check",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "checked_at": {
+          "name": "checked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.athlete_profiles": {
+      "name": "athlete_profiles",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "experience_mode": {
+          "name": "experience_mode",
+          "type": "experience_mode",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unit_system": {
+          "name": "unit_system",
+          "type": "unit_system",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "training_time_zone": {
+          "name": "training_time_zone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "athlete_profiles_user_id_users_id_fk": {
+          "name": "athlete_profiles_user_id_users_id_fk",
+          "tableFrom": "athlete_profiles",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "athlete_profiles_user_id_unique": {
+          "name": "athlete_profiles_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.auth_identities": {
+      "name": "auth_identities",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "auth_provider",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_subject": {
+          "name": "provider_subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "auth_identities_user_id_users_id_fk": {
+          "name": "auth_identities_user_id_users_id_fk",
+          "tableFrom": "auth_identities",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "auth_identities_provider_provider_subject_unique": {
+          "name": "auth_identities_provider_provider_subject_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "provider",
+            "provider_subject"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.users": {
+      "name": "users",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "user_status",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.performed_exercises": {
+      "name": "performed_exercises",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workout_session_id": {
+          "name": "workout_session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prescription_exercise_id": {
+          "name": "prescription_exercise_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "exercise_ref": {
+          "name": "exercise_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "order_index": {
+          "name": "order_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "performed_exercises_exercise_ref_idx": {
+          "name": "performed_exercises_exercise_ref_idx",
+          "columns": [
+            {
+              "expression": "exercise_ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "performed_exercises_workout_session_id_workout_sessions_id_fk": {
+          "name": "performed_exercises_workout_session_id_workout_sessions_id_fk",
+          "tableFrom": "performed_exercises",
+          "tableTo": "workout_sessions",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workout_session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.performed_sets": {
+      "name": "performed_sets",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "performed_exercise_id": {
+          "name": "performed_exercise_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prescription_set_id": {
+          "name": "prescription_set_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "order_index": {
+          "name": "order_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actual_reps": {
+          "name": "actual_reps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "load_kind": {
+          "name": "load_kind",
+          "type": "load_kind_v1",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "load_amount_milli": {
+          "name": "load_amount_milli",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "load_unit": {
+          "name": "load_unit",
+          "type": "load_unit",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "load_basis": {
+          "name": "load_basis",
+          "type": "load_basis_v1",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "set_type": {
+          "name": "set_type",
+          "type": "performed_set_type",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "completion_state": {
+          "name": "completion_state",
+          "type": "performed_set_completion_state",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "performed_sets_performed_exercise_id_idx": {
+          "name": "performed_sets_performed_exercise_id_idx",
+          "columns": [
+            {
+              "expression": "performed_exercise_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "performed_sets_performed_exercise_id_performed_exercises_id_fk": {
+          "name": "performed_sets_performed_exercise_id_performed_exercises_id_fk",
+          "tableFrom": "performed_sets",
+          "tableTo": "performed_exercises",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "performed_exercise_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.workout_change_cursor": {
+      "name": "workout_change_cursor",
+      "schema": "app",
+      "columns": {
+        "cursor_seq": {
+          "name": "cursor_seq",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_type": {
+          "name": "resource_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "command_type": {
+          "name": "command_type",
+          "type": "workout_command_type",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "workout_change_cursor_user_id_users_id_fk": {
+          "name": "workout_change_cursor_user_id_users_id_fk",
+          "tableFrom": "workout_change_cursor",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.workout_command_receipts": {
+      "name": "workout_command_receipts",
+      "schema": "app",
+      "columns": {
+        "command_id": {
+          "name": "command_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "command_type": {
+          "name": "command_type",
+          "type": "workout_command_type",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schema_version": {
+          "name": "schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "workout_command_outcome",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workout_session_id": {
+          "name": "workout_session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "session_seq": {
+          "name": "session_seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "workout_command_receipts_session_seq_unique": {
+          "name": "workout_command_receipts_session_seq_unique",
+          "columns": [
+            {
+              "expression": "workout_session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "session_seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"app\".\"workout_command_receipts\".\"session_seq\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workout_command_receipts_user_id_users_id_fk": {
+          "name": "workout_command_receipts_user_id_users_id_fk",
+          "tableFrom": "workout_command_receipts",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.workout_sessions": {
+      "name": "workout_sessions",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prescription_snapshot": {
+          "name": "prescription_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "workout_session_status",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "finish_seq": {
+          "name": "finish_seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "workout_sessions_user_id_idx": {
+          "name": "workout_sessions_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workout_sessions_user_id_users_id_fk": {
+          "name": "workout_sessions_user_id_users_id_fk",
+          "tableFrom": "workout_sessions",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.planned_exercises": {
+      "name": "planned_exercises",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "planned_workout_id": {
+          "name": "planned_workout_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exercise_ref": {
+          "name": "exercise_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "order_index": {
+          "name": "order_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "priority_tier": {
+          "name": "priority_tier",
+          "type": "planned_exercise_priority_tier",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "minimum_working_sets": {
+          "name": "minimum_working_sets",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "planned_exercises_planned_workout_id_order_index_unique": {
+          "name": "planned_exercises_planned_workout_id_order_index_unique",
+          "columns": [
+            {
+              "expression": "planned_workout_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "order_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "planned_exercises_planned_workout_id_planned_workouts_id_fk": {
+          "name": "planned_exercises_planned_workout_id_planned_workouts_id_fk",
+          "tableFrom": "planned_exercises",
+          "tableTo": "planned_workouts",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "planned_workout_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "planned_exercises_minimum_working_sets_non_negative": {
+          "name": "planned_exercises_minimum_working_sets_non_negative",
+          "value": "\"app\".\"planned_exercises\".\"minimum_working_sets\" IS NULL OR \"app\".\"planned_exercises\".\"minimum_working_sets\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "app.planned_sets": {
+      "name": "planned_sets",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "planned_exercise_id": {
+          "name": "planned_exercise_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "order_index": {
+          "name": "order_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_reps_min": {
+          "name": "target_reps_min",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_reps_max": {
+          "name": "target_reps_max",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rest_seconds": {
+          "name": "rest_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "set_type": {
+          "name": "set_type",
+          "type": "planned_set_type",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'WORKING'"
+        },
+        "load_kind": {
+          "name": "load_kind",
+          "type": "planned_set_load_kind",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "load_amount_milli": {
+          "name": "load_amount_milli",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "load_unit": {
+          "name": "load_unit",
+          "type": "planned_set_load_unit",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "load_basis": {
+          "name": "load_basis",
+          "type": "planned_set_load_basis",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "planned_sets_planned_exercise_id_order_index_unique": {
+          "name": "planned_sets_planned_exercise_id_order_index_unique",
+          "columns": [
+            {
+              "expression": "planned_exercise_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "order_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "planned_sets_planned_exercise_id_planned_exercises_id_fk": {
+          "name": "planned_sets_planned_exercise_id_planned_exercises_id_fk",
+          "tableFrom": "planned_sets",
+          "tableTo": "planned_exercises",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "planned_exercise_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "planned_sets_load_all_or_nothing": {
+          "name": "planned_sets_load_all_or_nothing",
+          "value": "(\"app\".\"planned_sets\".\"load_kind\" IS NULL AND \"app\".\"planned_sets\".\"load_amount_milli\" IS NULL AND \"app\".\"planned_sets\".\"load_unit\" IS NULL AND \"app\".\"planned_sets\".\"load_basis\" IS NULL)\n          OR (\"app\".\"planned_sets\".\"load_kind\" IS NOT NULL AND \"app\".\"planned_sets\".\"load_amount_milli\" IS NOT NULL AND \"app\".\"planned_sets\".\"load_unit\" IS NOT NULL AND \"app\".\"planned_sets\".\"load_basis\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "app.planned_workouts": {
+      "name": "planned_workouts",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "training_cycle_id": {
+          "name": "training_cycle_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "focus": {
+          "name": "focus",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "order_index": {
+          "name": "order_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scheduled_date": {
+          "name": "scheduled_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estimated_duration_minutes": {
+          "name": "estimated_duration_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "planned_workout_status",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PLANNED'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "planned_workouts_training_cycle_id_order_index_unique": {
+          "name": "planned_workouts_training_cycle_id_order_index_unique",
+          "columns": [
+            {
+              "expression": "training_cycle_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "order_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "planned_workouts_training_cycle_id_training_cycles_id_fk": {
+          "name": "planned_workouts_training_cycle_id_training_cycles_id_fk",
+          "tableFrom": "planned_workouts",
+          "tableTo": "training_cycles",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "training_cycle_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.program_versions": {
+      "name": "program_versions",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "program_id": {
+          "name": "program_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_number": {
+          "name": "version_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "program_version_status",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'DRAFT'"
+        },
+        "activated_at": {
+          "name": "activated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "program_versions_program_id_version_number_unique": {
+          "name": "program_versions_program_id_version_number_unique",
+          "columns": [
+            {
+              "expression": "program_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "version_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "program_versions_one_active_per_program": {
+          "name": "program_versions_one_active_per_program",
+          "columns": [
+            {
+              "expression": "program_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"app\".\"program_versions\".\"status\" = 'ACTIVE'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "program_versions_program_id_programs_id_fk": {
+          "name": "program_versions_program_id_programs_id_fk",
+          "tableFrom": "program_versions",
+          "tableTo": "programs",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "program_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.programs": {
+      "name": "programs",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "athlete_profile_id": {
+          "name": "athlete_profile_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "program_status",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ACTIVE'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "programs_athlete_profile_id_athlete_profiles_id_fk": {
+          "name": "programs_athlete_profile_id_athlete_profiles_id_fk",
+          "tableFrom": "programs",
+          "tableTo": "athlete_profiles",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "athlete_profile_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.training_blocks": {
+      "name": "training_blocks",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "program_version_id": {
+          "name": "program_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "goal": {
+          "name": "goal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "order_index": {
+          "name": "order_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cycle_count": {
+          "name": "cycle_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "focus_areas": {
+          "name": "focus_areas",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "training_blocks_program_version_id_order_index_unique": {
+          "name": "training_blocks_program_version_id_order_index_unique",
+          "columns": [
+            {
+              "expression": "program_version_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "order_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "training_blocks_program_version_id_program_versions_id_fk": {
+          "name": "training_blocks_program_version_id_program_versions_id_fk",
+          "tableFrom": "training_blocks",
+          "tableTo": "program_versions",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "program_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.training_cycles": {
+      "name": "training_cycles",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "training_block_id": {
+          "name": "training_block_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "order_index": {
+          "name": "order_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_date": {
+          "name": "start_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_date": {
+          "name": "end_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "training_cycles_training_block_id_order_index_unique": {
+          "name": "training_cycles_training_block_id_order_index_unique",
+          "columns": [
+            {
+              "expression": "training_block_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "order_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "training_cycles_training_block_id_training_blocks_id_fk": {
+          "name": "training_cycles_training_block_id_training_blocks_id_fk",
+          "tableFrom": "training_cycles",
+          "tableTo": "training_blocks",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "training_block_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "training_cycles_end_date_not_before_start_date": {
+          "name": "training_cycles_end_date_not_before_start_date",
+          "value": "\"app\".\"training_cycles\".\"end_date\" >= \"app\".\"training_cycles\".\"start_date\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "app.progression_decisions": {
+      "name": "progression_decisions",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exercise_ref": {
+          "name": "exercise_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_workout_session_id": {
+          "name": "source_workout_session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_performed_exercise_id": {
+          "name": "source_performed_exercise_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_prescription_exercise_id": {
+          "name": "source_prescription_exercise_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "engine": {
+          "name": "engine",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "policy": {
+          "name": "policy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decision_type": {
+          "name": "decision_type",
+          "type": "progression_decision_type",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason_code": {
+          "name": "reason_code",
+          "type": "progression_reason_code",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "evidence_strength": {
+          "name": "evidence_strength",
+          "type": "progression_evidence_strength",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "progression_stalled": {
+          "name": "progression_stalled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recommended_change": {
+          "name": "recommended_change",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "normalized_input_snapshot": {
+          "name": "normalized_input_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "evidence_refs": {
+          "name": "evidence_refs",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "evidence_fingerprint": {
+          "name": "evidence_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "applied_at": {
+          "name": "applied_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "superseded_by_decision_id": {
+          "name": "superseded_by_decision_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "progression_decisions_evidence_fingerprint_unique": {
+          "name": "progression_decisions_evidence_fingerprint_unique",
+          "columns": [
+            {
+              "expression": "evidence_fingerprint",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "progression_decisions_source_performed_exercise_id_idx": {
+          "name": "progression_decisions_source_performed_exercise_id_idx",
+          "columns": [
+            {
+              "expression": "source_performed_exercise_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "progression_decisions_user_id_users_id_fk": {
+          "name": "progression_decisions_user_id_users_id_fk",
+          "tableFrom": "progression_decisions",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "progression_decisions_source_workout_session_id_workout_sessions_id_fk": {
+          "name": "progression_decisions_source_workout_session_id_workout_sessions_id_fk",
+          "tableFrom": "progression_decisions",
+          "tableTo": "workout_sessions",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "source_workout_session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "progression_decisions_source_performed_exercise_id_performed_exercises_id_fk": {
+          "name": "progression_decisions_source_performed_exercise_id_performed_exercises_id_fk",
+          "tableFrom": "progression_decisions",
+          "tableTo": "performed_exercises",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "source_performed_exercise_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "progression_decisions_superseded_by_decision_id_progression_decisions_id_fk": {
+          "name": "progression_decisions_superseded_by_decision_id_progression_decisions_id_fk",
+          "tableFrom": "progression_decisions",
+          "tableTo": "progression_decisions",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "superseded_by_decision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "progression_decisions_id_user_id_unique": {
+          "name": "progression_decisions_id_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "user_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.exercise_loading_capability_bindings": {
+      "name": "exercise_loading_capability_bindings",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "gym_profile_id": {
+          "name": "gym_profile_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exercise_ref": {
+          "name": "exercise_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "loading_capability_id": {
+          "name": "loading_capability_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "exercise_loading_capability_bindings_one_per_exercise": {
+          "name": "exercise_loading_capability_bindings_one_per_exercise",
+          "columns": [
+            {
+              "expression": "gym_profile_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "exercise_ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "exercise_loading_capability_bindings_gym_profile_id_gym_profiles_id_fk": {
+          "name": "exercise_loading_capability_bindings_gym_profile_id_gym_profiles_id_fk",
+          "tableFrom": "exercise_loading_capability_bindings",
+          "tableTo": "gym_profiles",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "gym_profile_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "exercise_loading_capability_bindings_same_gym_fkey": {
+          "name": "exercise_loading_capability_bindings_same_gym_fkey",
+          "tableFrom": "exercise_loading_capability_bindings",
+          "tableTo": "loading_capabilities",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "gym_profile_id",
+            "loading_capability_id"
+          ],
+          "columnsTo": [
+            "gym_profile_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.gym_profiles": {
+      "name": "gym_profiles",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "athlete_profile_id": {
+          "name": "athlete_profile_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'My Gym'"
+        },
+        "is_default": {
+          "name": "is_default",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "gym_profiles_one_default_per_athlete": {
+          "name": "gym_profiles_one_default_per_athlete",
+          "columns": [
+            {
+              "expression": "athlete_profile_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"app\".\"gym_profiles\".\"is_default\" = true",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "gym_profiles_athlete_profile_id_athlete_profiles_id_fk": {
+          "name": "gym_profiles_athlete_profile_id_athlete_profiles_id_fk",
+          "tableFrom": "gym_profiles",
+          "tableTo": "athlete_profiles",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "athlete_profile_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.loading_capabilities": {
+      "name": "loading_capabilities",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "gym_profile_id": {
+          "name": "gym_profile_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unit": {
+          "name": "unit",
+          "type": "planned_set_load_unit",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "basis": {
+          "name": "basis",
+          "type": "planned_set_load_basis",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "loading_capability_kind",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "fixed_increment_amount_milli": {
+          "name": "fixed_increment_amount_milli",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "enumerated_loads_milli": {
+          "name": "enumerated_loads_milli",
+          "type": "integer[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "loading_capabilities_gym_profile_id_gym_profiles_id_fk": {
+          "name": "loading_capabilities_gym_profile_id_gym_profiles_id_fk",
+          "tableFrom": "loading_capabilities",
+          "tableTo": "gym_profiles",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "gym_profile_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "loading_capabilities_gym_profile_id_id_unique": {
+          "name": "loading_capabilities_gym_profile_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "gym_profile_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "loading_capabilities_revision_positive": {
+          "name": "loading_capabilities_revision_positive",
+          "value": "\"app\".\"loading_capabilities\".\"revision\" >= 1"
+        },
+        "loading_capabilities_payload_matches_kind": {
+          "name": "loading_capabilities_payload_matches_kind",
+          "value": "(\"app\".\"loading_capabilities\".\"kind\" = 'FIXED_INCREMENT' AND \"app\".\"loading_capabilities\".\"fixed_increment_amount_milli\" IS NOT NULL AND \"app\".\"loading_capabilities\".\"enumerated_loads_milli\" IS NULL)\n          OR (\"app\".\"loading_capabilities\".\"kind\" = 'ENUMERATED_LIST' AND \"app\".\"loading_capabilities\".\"enumerated_loads_milli\" IS NOT NULL AND \"app\".\"loading_capabilities\".\"fixed_increment_amount_milli\" IS NULL)"
+        },
+        "loading_capabilities_fixed_increment_positive": {
+          "name": "loading_capabilities_fixed_increment_positive",
+          "value": "\"app\".\"loading_capabilities\".\"fixed_increment_amount_milli\" IS NULL OR \"app\".\"loading_capabilities\".\"fixed_increment_amount_milli\" > 0"
+        },
+        "loading_capabilities_enumerated_loads_nonempty": {
+          "name": "loading_capabilities_enumerated_loads_nonempty",
+          "value": "\"app\".\"loading_capabilities\".\"enumerated_loads_milli\" IS NULL OR array_length(\"app\".\"loading_capabilities\".\"enumerated_loads_milli\", 1) >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "app.progression_application_commands": {
+      "name": "progression_application_commands",
+      "schema": "app",
+      "columns": {
+        "command_id": {
+          "name": "command_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actor_type": {
+          "name": "actor_type",
+          "type": "progression_application_actor_type",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ATHLETE'"
+        },
+        "action": {
+          "name": "action",
+          "type": "progression_application_command_action",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "progression_application_command_outcome",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rejection_reason": {
+          "name": "rejection_reason",
+          "type": "progression_application_command_rejection_reason",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "progression_application_commands_application_id_idx": {
+          "name": "progression_application_commands_application_id_idx",
+          "columns": [
+            {
+              "expression": "application_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "progression_application_commands_application_id_progression_applications_id_fk": {
+          "name": "progression_application_commands_application_id_progression_applications_id_fk",
+          "tableFrom": "progression_application_commands",
+          "tableTo": "progression_applications",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "progression_application_commands_user_id_users_id_fk": {
+          "name": "progression_application_commands_user_id_users_id_fk",
+          "tableFrom": "progression_application_commands",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "progression_application_commands_rejection_reason_consistency": {
+          "name": "progression_application_commands_rejection_reason_consistency",
+          "value": "(\"app\".\"progression_application_commands\".\"outcome\" = 'REJECTED') OR \"app\".\"progression_application_commands\".\"rejection_reason\" IS NULL"
+        },
+        "progression_application_commands_actor_type_user_id_consistency": {
+          "name": "progression_application_commands_actor_type_user_id_consistency",
+          "value": "(\"app\".\"progression_application_commands\".\"actor_type\" = 'ATHLETE') = (\"app\".\"progression_application_commands\".\"user_id\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "app.progression_applications": {
+      "name": "progression_applications",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "progression_decision_id": {
+          "name": "progression_decision_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exercise_ref": {
+          "name": "exercise_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "program_version_id": {
+          "name": "program_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "training_block_id": {
+          "name": "training_block_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workout_order_index": {
+          "name": "workout_order_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exercise_order_index": {
+          "name": "exercise_order_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effective_from_cycle_order_index": {
+          "name": "effective_from_cycle_order_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "progression_application_status",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING_REVIEW'"
+        },
+        "expected_effective_load": {
+          "name": "expected_effective_load",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_by_actor_type": {
+          "name": "decided_by_actor_type",
+          "type": "progression_application_actor_type",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_by": {
+          "name": "decided_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "loading_capability_id": {
+          "name": "loading_capability_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "loading_capability_revision": {
+          "name": "loading_capability_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "loading_capability_snapshot": {
+          "name": "loading_capability_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolver_proposed_load": {
+          "name": "resolver_proposed_load",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "applied_load": {
+          "name": "applied_load",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "applied_at": {
+          "name": "applied_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "superseded_by_application_id": {
+          "name": "superseded_by_application_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "progression_applications_progression_decision_id_unique": {
+          "name": "progression_applications_progression_decision_id_unique",
+          "columns": [
+            {
+              "expression": "progression_decision_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "progression_applications_user_id_status_idx": {
+          "name": "progression_applications_user_id_status_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "progression_applications_slot_lookup_idx": {
+          "name": "progression_applications_slot_lookup_idx",
+          "columns": [
+            {
+              "expression": "program_version_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "training_block_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "workout_order_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "exercise_order_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "progression_applications_one_current_overlay_per_stream": {
+          "name": "progression_applications_one_current_overlay_per_stream",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "program_version_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "training_block_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "workout_order_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "exercise_order_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"app\".\"progression_applications\".\"status\" = 'APPLIED'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "progression_applications_user_id_users_id_fk": {
+          "name": "progression_applications_user_id_users_id_fk",
+          "tableFrom": "progression_applications",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "progression_applications_program_version_id_program_versions_id_fk": {
+          "name": "progression_applications_program_version_id_program_versions_id_fk",
+          "tableFrom": "progression_applications",
+          "tableTo": "program_versions",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "program_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "progression_applications_training_block_id_training_blocks_id_fk": {
+          "name": "progression_applications_training_block_id_training_blocks_id_fk",
+          "tableFrom": "progression_applications",
+          "tableTo": "training_blocks",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "training_block_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "progression_applications_decided_by_users_id_fk": {
+          "name": "progression_applications_decided_by_users_id_fk",
+          "tableFrom": "progression_applications",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "decided_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "progression_applications_loading_capability_id_loading_capabilities_id_fk": {
+          "name": "progression_applications_loading_capability_id_loading_capabilities_id_fk",
+          "tableFrom": "progression_applications",
+          "tableTo": "loading_capabilities",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "loading_capability_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "progression_applications_superseded_by_application_id_progression_applications_id_fk": {
+          "name": "progression_applications_superseded_by_application_id_progression_applications_id_fk",
+          "tableFrom": "progression_applications",
+          "tableTo": "progression_applications",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "superseded_by_application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "progression_applications_decision_owner_fkey": {
+          "name": "progression_applications_decision_owner_fkey",
+          "tableFrom": "progression_applications",
+          "tableTo": "progression_decisions",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "progression_decision_id",
+            "user_id"
+          ],
+          "columnsTo": [
+            "id",
+            "user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "progression_applications_effective_from_cycle_order_index_non_negative": {
+          "name": "progression_applications_effective_from_cycle_order_index_non_negative",
+          "value": "\"app\".\"progression_applications\".\"effective_from_cycle_order_index\" >= 0"
+        },
+        "progression_applications_decided_at_actor_type_consistency": {
+          "name": "progression_applications_decided_at_actor_type_consistency",
+          "value": "(\"app\".\"progression_applications\".\"decided_at\" IS NULL) = (\"app\".\"progression_applications\".\"decided_by_actor_type\" IS NULL)"
+        },
+        "progression_applications_decided_by_actor_type_consistency": {
+          "name": "progression_applications_decided_by_actor_type_consistency",
+          "value": "(\"app\".\"progression_applications\".\"decided_by_actor_type\" = 'ATHLETE') = (\"app\".\"progression_applications\".\"decided_by\" IS NOT NULL)"
+        },
+        "progression_applications_applied_audit_group_consistency": {
+          "name": "progression_applications_applied_audit_group_consistency",
+          "value": "(\"app\".\"progression_applications\".\"loading_capability_id\" IS NULL) = (\"app\".\"progression_applications\".\"loading_capability_revision\" IS NULL)\n          AND (\"app\".\"progression_applications\".\"loading_capability_id\" IS NULL) = (\"app\".\"progression_applications\".\"loading_capability_snapshot\" IS NULL)\n          AND (\"app\".\"progression_applications\".\"loading_capability_id\" IS NULL) = (\"app\".\"progression_applications\".\"resolver_proposed_load\" IS NULL)\n          AND (\"app\".\"progression_applications\".\"loading_capability_id\" IS NULL) = (\"app\".\"progression_applications\".\"applied_load\" IS NULL)\n          AND (\"app\".\"progression_applications\".\"loading_capability_id\" IS NULL) = (\"app\".\"progression_applications\".\"applied_at\" IS NULL)"
+        },
+        "progression_applications_non_applied_states_audit_null": {
+          "name": "progression_applications_non_applied_states_audit_null",
+          "value": "\"app\".\"progression_applications\".\"status\" NOT IN ('PENDING_REVIEW', 'KEPT_ORIGINAL', 'STALE') OR \"app\".\"progression_applications\".\"applied_at\" IS NULL"
+        },
+        "progression_applications_applied_status_requires_audit": {
+          "name": "progression_applications_applied_status_requires_audit",
+          "value": "\"app\".\"progression_applications\".\"status\" != 'APPLIED' OR \"app\".\"progression_applications\".\"applied_at\" IS NOT NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "app.available_time_applications": {
+      "name": "available_time_applications",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workout_session_id": {
+          "name": "workout_session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "planned_workout_id": {
+          "name": "planned_workout_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_program_version_id": {
+          "name": "source_program_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "available_time_application_scope",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "policy_version": {
+          "name": "policy_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "available_minutes": {
+          "name": "available_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "preview_fingerprint": {
+          "name": "preview_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "original_estimated_seconds": {
+          "name": "original_estimated_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "adjusted_estimated_seconds": {
+          "name": "adjusted_estimated_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "structural_diff": {
+          "name": "structural_diff",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "verification_status": {
+          "name": "verification_status",
+          "type": "available_time_verification_status",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "verification_reason": {
+          "name": "verification_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "available_time_applications_workout_session_id_unique": {
+          "name": "available_time_applications_workout_session_id_unique",
+          "columns": [
+            {
+              "expression": "workout_session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "available_time_applications_workout_session_id_workout_sessions_id_fk": {
+          "name": "available_time_applications_workout_session_id_workout_sessions_id_fk",
+          "tableFrom": "available_time_applications",
+          "tableTo": "workout_sessions",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "workout_session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "available_time_applications_user_id_users_id_fk": {
+          "name": "available_time_applications_user_id_users_id_fk",
+          "tableFrom": "available_time_applications",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "available_time_applications_policy_version_v1": {
+          "name": "available_time_applications_policy_version_v1",
+          "value": "\"app\".\"available_time_applications\".\"policy_version\" = 'available-time/v1'"
+        },
+        "available_time_applications_available_minutes_range": {
+          "name": "available_time_applications_available_minutes_range",
+          "value": "\"app\".\"available_time_applications\".\"available_minutes\" BETWEEN 1 AND 240"
+        },
+        "available_time_applications_estimates_non_negative": {
+          "name": "available_time_applications_estimates_non_negative",
+          "value": "\"app\".\"available_time_applications\".\"original_estimated_seconds\" >= 0 AND \"app\".\"available_time_applications\".\"adjusted_estimated_seconds\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "app.planned_workout_occurrence_claims": {
+      "name": "planned_workout_occurrence_claims",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "planned_workout_id": {
+          "name": "planned_workout_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "canonical_workout_session_id": {
+          "name": "canonical_workout_session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "planned_workout_occurrence_claims_user_planned_workout_unique": {
+          "name": "planned_workout_occurrence_claims_user_planned_workout_unique",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "planned_workout_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "planned_workout_occurrence_claims_canonical_session_unique": {
+          "name": "planned_workout_occurrence_claims_canonical_session_unique",
+          "columns": [
+            {
+              "expression": "canonical_workout_session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "planned_workout_occurrence_claims_user_id_users_id_fk": {
+          "name": "planned_workout_occurrence_claims_user_id_users_id_fk",
+          "tableFrom": "planned_workout_occurrence_claims",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "planned_workout_occurrence_claims_canonical_workout_session_id_workout_sessions_id_fk": {
+          "name": "planned_workout_occurrence_claims_canonical_workout_session_id_workout_sessions_id_fk",
+          "tableFrom": "planned_workout_occurrence_claims",
+          "tableTo": "workout_sessions",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "canonical_workout_session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "app.missed_workout_schedule_applications": {
+      "name": "missed_workout_schedule_applications",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "athlete_profile_id": {
+          "name": "athlete_profile_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "program_version_id": {
+          "name": "program_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "training_block_id": {
+          "name": "training_block_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "policy_version": {
+          "name": "policy_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "preview_fingerprint": {
+          "name": "preview_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "athlete_local_date": {
+          "name": "athlete_local_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "training_time_zone": {
+          "name": "training_time_zone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "missed_planned_workout_id": {
+          "name": "missed_planned_workout_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "missed_scheduled_local_date": {
+          "name": "missed_scheduled_local_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "original_next_planned_workout_id": {
+          "name": "original_next_planned_workout_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reason_code": {
+          "name": "reason_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied_by_user_id": {
+          "name": "applied_by_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied_at": {
+          "name": "applied_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "missed_workout_schedule_application_status",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "supersedes_application_id": {
+          "name": "supersedes_application_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "superseded_at": {
+          "name": "superseded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "missed_workout_schedule_applications_one_active_per_block": {
+          "name": "missed_workout_schedule_applications_one_active_per_block",
+          "columns": [
+            {
+              "expression": "athlete_profile_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "training_block_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"app\".\"missed_workout_schedule_applications\".\"status\" = 'ACTIVE'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "missed_workout_schedule_applications_fingerprint_unique": {
+          "name": "missed_workout_schedule_applications_fingerprint_unique",
+          "columns": [
+            {
+              "expression": "athlete_profile_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "training_block_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "preview_fingerprint",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "missed_workout_schedule_applications_athlete_profile_id_athlete_profiles_id_fk": {
+          "name": "missed_workout_schedule_applications_athlete_profile_id_athlete_profiles_id_fk",
+          "tableFrom": "missed_workout_schedule_applications",
+          "tableTo": "athlete_profiles",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "athlete_profile_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "missed_workout_schedule_applications_program_version_id_program_versions_id_fk": {
+          "name": "missed_workout_schedule_applications_program_version_id_program_versions_id_fk",
+          "tableFrom": "missed_workout_schedule_applications",
+          "tableTo": "program_versions",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "program_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "missed_workout_schedule_applications_training_block_id_training_blocks_id_fk": {
+          "name": "missed_workout_schedule_applications_training_block_id_training_blocks_id_fk",
+          "tableFrom": "missed_workout_schedule_applications",
+          "tableTo": "training_blocks",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "training_block_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "missed_workout_schedule_applications_missed_planned_workout_id_planned_workouts_id_fk": {
+          "name": "missed_workout_schedule_applications_missed_planned_workout_id_planned_workouts_id_fk",
+          "tableFrom": "missed_workout_schedule_applications",
+          "tableTo": "planned_workouts",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "missed_planned_workout_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "missed_workout_schedule_applications_original_next_planned_workout_id_planned_workouts_id_fk": {
+          "name": "missed_workout_schedule_applications_original_next_planned_workout_id_planned_workouts_id_fk",
+          "tableFrom": "missed_workout_schedule_applications",
+          "tableTo": "planned_workouts",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "original_next_planned_workout_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "missed_workout_schedule_applications_applied_by_user_id_users_id_fk": {
+          "name": "missed_workout_schedule_applications_applied_by_user_id_users_id_fk",
+          "tableFrom": "missed_workout_schedule_applications",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "applied_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "missed_workout_schedule_applications_supersedes_application_id_missed_workout_schedule_applications_id_fk": {
+          "name": "missed_workout_schedule_applications_supersedes_application_id_missed_workout_schedule_applications_id_fk",
+          "tableFrom": "missed_workout_schedule_applications",
+          "tableTo": "missed_workout_schedule_applications",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "supersedes_application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "missed_workout_schedule_applications_superseded_at_matches_status": {
+          "name": "missed_workout_schedule_applications_superseded_at_matches_status",
+          "value": "(\"app\".\"missed_workout_schedule_applications\".\"status\" = 'SUPERSEDED') = (\"app\".\"missed_workout_schedule_applications\".\"superseded_at\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "app.missed_workout_schedule_assignments": {
+      "name": "missed_workout_schedule_assignments",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sequence_position": {
+          "name": "sequence_position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "planned_workout_id": {
+          "name": "planned_workout_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "assignment_kind": {
+          "name": "assignment_kind",
+          "type": "missed_workout_schedule_assignment_kind",
+          "typeSchema": "app",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "authored_scheduled_local_date": {
+          "name": "authored_scheduled_local_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "effective_scheduled_local_date": {
+          "name": "effective_scheduled_local_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "missed_workout_schedule_assignments_application_workout_unique": {
+          "name": "missed_workout_schedule_assignments_application_workout_unique",
+          "columns": [
+            {
+              "expression": "application_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "planned_workout_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "missed_workout_schedule_assignments_application_position_unique": {
+          "name": "missed_workout_schedule_assignments_application_position_unique",
+          "columns": [
+            {
+              "expression": "application_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sequence_position",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "missed_workout_schedule_assignments_application_id_missed_workout_schedule_applications_id_fk": {
+          "name": "missed_workout_schedule_assignments_application_id_missed_workout_schedule_applications_id_fk",
+          "tableFrom": "missed_workout_schedule_assignments",
+          "tableTo": "missed_workout_schedule_applications",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "missed_workout_schedule_assignments_planned_workout_id_planned_workouts_id_fk": {
+          "name": "missed_workout_schedule_assignments_planned_workout_id_planned_workouts_id_fk",
+          "tableFrom": "missed_workout_schedule_assignments",
+          "tableTo": "planned_workouts",
+          "schemaTo": "app",
+          "columnsFrom": [
+            "planned_workout_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "missed_workout_schedule_assignments_position_non_negative": {
+          "name": "missed_workout_schedule_assignments_position_non_negative",
+          "value": "\"app\".\"missed_workout_schedule_assignments\".\"sequence_position\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "app.auth_provider": {
+      "name": "auth_provider",
+      "schema": "app",
+      "values": [
+        "supabase"
+      ]
+    },
+    "app.experience_mode": {
+      "name": "experience_mode",
+      "schema": "app",
+      "values": [
+        "GUIDED",
+        "ADAPTIVE",
+        "EXPERT"
+      ]
+    },
+    "app.unit_system": {
+      "name": "unit_system",
+      "schema": "app",
+      "values": [
+        "METRIC",
+        "IMPERIAL"
+      ]
+    },
+    "app.user_status": {
+      "name": "user_status",
+      "schema": "app",
+      "values": [
+        "ACTIVE",
+        "DELETION_PENDING",
+        "SUSPENDED",
+        "DELETED"
+      ]
+    },
+    "app.load_basis_v1": {
+      "name": "load_basis_v1",
+      "schema": "app",
+      "values": [
+        "TOTAL",
+        "PER_IMPLEMENT"
+      ]
+    },
+    "app.load_kind_v1": {
+      "name": "load_kind_v1",
+      "schema": "app",
+      "values": [
+        "EXTERNAL_WEIGHT"
+      ]
+    },
+    "app.load_unit": {
+      "name": "load_unit",
+      "schema": "app",
+      "values": [
+        "KG",
+        "LB"
+      ]
+    },
+    "app.performed_set_completion_state": {
+      "name": "performed_set_completion_state",
+      "schema": "app",
+      "values": [
+        "COMPLETED",
+        "REOPENED"
+      ]
+    },
+    "app.performed_set_type": {
+      "name": "performed_set_type",
+      "schema": "app",
+      "values": [
+        "WORKING",
+        "WARM_UP"
+      ]
+    },
+    "app.workout_command_outcome": {
+      "name": "workout_command_outcome",
+      "schema": "app",
+      "values": [
+        "APPLIED",
+        "STALE",
+        "REJECTED"
+      ]
+    },
+    "app.workout_command_type": {
+      "name": "workout_command_type",
+      "schema": "app",
+      "values": [
+        "START_WORKOUT_SESSION_V1",
+        "COMPLETE_SET_V1",
+        "REOPEN_SET_V1",
+        "FINISH_WORKOUT_SESSION_V1"
+      ]
+    },
+    "app.workout_session_status": {
+      "name": "workout_session_status",
+      "schema": "app",
+      "values": [
+        "ACTIVE",
+        "COMPLETED"
+      ]
+    },
+    "app.planned_exercise_priority_tier": {
+      "name": "planned_exercise_priority_tier",
+      "schema": "app",
+      "values": [
+        "TIER_1",
+        "TIER_2",
+        "TIER_3"
+      ]
+    },
+    "app.planned_set_load_basis": {
+      "name": "planned_set_load_basis",
+      "schema": "app",
+      "values": [
+        "TOTAL",
+        "PER_IMPLEMENT"
+      ]
+    },
+    "app.planned_set_load_kind": {
+      "name": "planned_set_load_kind",
+      "schema": "app",
+      "values": [
+        "EXTERNAL_WEIGHT"
+      ]
+    },
+    "app.planned_set_load_unit": {
+      "name": "planned_set_load_unit",
+      "schema": "app",
+      "values": [
+        "KG",
+        "LB"
+      ]
+    },
+    "app.planned_set_type": {
+      "name": "planned_set_type",
+      "schema": "app",
+      "values": [
+        "WORKING",
+        "WARM_UP"
+      ]
+    },
+    "app.planned_workout_status": {
+      "name": "planned_workout_status",
+      "schema": "app",
+      "values": [
+        "PLANNED",
+        "AVAILABLE",
+        "SKIPPED",
+        "RESCHEDULED",
+        "CANCELLED"
+      ]
+    },
+    "app.program_status": {
+      "name": "program_status",
+      "schema": "app",
+      "values": [
+        "ACTIVE",
+        "ARCHIVED"
+      ]
+    },
+    "app.program_version_status": {
+      "name": "program_version_status",
+      "schema": "app",
+      "values": [
+        "DRAFT",
+        "ACTIVE",
+        "SUPERSEDED"
+      ]
+    },
+    "app.progression_decision_type": {
+      "name": "progression_decision_type",
+      "schema": "app",
+      "values": [
+        "NO_CHANGE",
+        "MAINTAIN_LOAD_BUILD_REPS",
+        "INCREASE_LOAD"
+      ]
+    },
+    "app.progression_evidence_strength": {
+      "name": "progression_evidence_strength",
+      "schema": "app",
+      "values": [
+        "INSUFFICIENT",
+        "SINGLE_EXPOSURE",
+        "SUPPORTED",
+        "STRONG"
+      ]
+    },
+    "app.progression_reason_code": {
+      "name": "progression_reason_code",
+      "schema": "app",
+      "values": [
+        "TOP_OF_RANGE_ACHIEVED",
+        "REPS_PROGRESSING",
+        "PERFORMANCE_STABLE",
+        "INSUFFICIENT_EVIDENCE",
+        "SINGLE_EXPOSURE_ONLY",
+        "PERFORMANCE_REGRESSED_SINGLE_EXPOSURE",
+        "NON_COMPARABLE_CONTEXT",
+        "PARTIAL_EXPOSURE",
+        "PRESCRIPTION_CHANGED_RESET",
+        "NO_SUITABLE_LOAD_INCREMENT"
+      ]
+    },
+    "app.loading_capability_kind": {
+      "name": "loading_capability_kind",
+      "schema": "app",
+      "values": [
+        "FIXED_INCREMENT",
+        "ENUMERATED_LIST"
+      ]
+    },
+    "app.progression_application_actor_type": {
+      "name": "progression_application_actor_type",
+      "schema": "app",
+      "values": [
+        "ATHLETE",
+        "SYSTEM"
+      ]
+    },
+    "app.progression_application_command_action": {
+      "name": "progression_application_command_action",
+      "schema": "app",
+      "values": [
+        "KEEP_ORIGINAL",
+        "APPLY"
+      ]
+    },
+    "app.progression_application_command_outcome": {
+      "name": "progression_application_command_outcome",
+      "schema": "app",
+      "values": [
+        "APPLIED",
+        "REJECTED"
+      ]
+    },
+    "app.progression_application_command_rejection_reason": {
+      "name": "progression_application_command_rejection_reason",
+      "schema": "app",
+      "values": [
+        "STALE",
+        "SUPERSEDED",
+        "PROPOSAL_REFRESH_REQUIRED",
+        "NO_CURRENT_LOAD",
+        "LOADING_CAPABILITY_UNAVAILABLE",
+        "LOADING_CAPABILITY_INVALID",
+        "CAPABILITY_INCOMPATIBLE",
+        "CURRENT_LOAD_UNSUPPORTED",
+        "NO_SUITABLE_INCREMENT"
+      ]
+    },
+    "app.progression_application_status": {
+      "name": "progression_application_status",
+      "schema": "app",
+      "values": [
+        "PENDING_REVIEW",
+        "APPLIED",
+        "KEPT_ORIGINAL",
+        "STALE",
+        "SUPERSEDED",
+        "REVOKED"
+      ]
+    },
+    "app.available_time_application_scope": {
+      "name": "available_time_application_scope",
+      "schema": "app",
+      "values": [
+        "TODAY_ONLY"
+      ]
+    },
+    "app.available_time_verification_status": {
+      "name": "available_time_verification_status",
+      "schema": "app",
+      "values": [
+        "VERIFIED",
+        "STALE",
+        "UNVERIFIED"
+      ]
+    },
+    "app.missed_workout_schedule_application_status": {
+      "name": "missed_workout_schedule_application_status",
+      "schema": "app",
+      "values": [
+        "ACTIVE",
+        "SUPERSEDED"
+      ]
+    },
+    "app.missed_workout_schedule_assignment_kind": {
+      "name": "missed_workout_schedule_assignment_kind",
+      "schema": "app",
+      "values": [
+        "ROLL_FORWARD",
+        "RETAINED"
+      ]
+    }
+  },
+  "schemas": {
+    "app": "app"
+  },
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

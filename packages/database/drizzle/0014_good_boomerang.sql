@@ -1,0 +1,9 @@
+CREATE TYPE "app"."progression_application_actor_type" AS ENUM('ATHLETE', 'SYSTEM');--> statement-breakpoint
+ALTER TABLE "app"."progression_applications" DROP CONSTRAINT "progression_applications_decided_at_decided_by_consistency";--> statement-breakpoint
+ALTER TABLE "app"."progression_application_commands" ALTER COLUMN "user_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "app"."progression_application_commands" ADD COLUMN "actor_type" "app"."progression_application_actor_type" DEFAULT 'ATHLETE' NOT NULL;--> statement-breakpoint
+ALTER TABLE "app"."progression_applications" ADD COLUMN "decided_by_actor_type" "app"."progression_application_actor_type";--> statement-breakpoint
+UPDATE "app"."progression_applications" SET "decided_by_actor_type" = 'ATHLETE' WHERE "decided_at" IS NOT NULL AND "decided_by" IS NOT NULL;--> statement-breakpoint
+ALTER TABLE "app"."progression_application_commands" ADD CONSTRAINT "progression_application_commands_actor_type_user_id_consistency" CHECK (("app"."progression_application_commands"."actor_type" = 'ATHLETE') = ("app"."progression_application_commands"."user_id" IS NOT NULL));--> statement-breakpoint
+ALTER TABLE "app"."progression_applications" ADD CONSTRAINT "progression_applications_decided_at_actor_type_consistency" CHECK (("app"."progression_applications"."decided_at" IS NULL) = ("app"."progression_applications"."decided_by_actor_type" IS NULL));--> statement-breakpoint
+ALTER TABLE "app"."progression_applications" ADD CONSTRAINT "progression_applications_decided_by_actor_type_consistency" CHECK (("app"."progression_applications"."decided_by_actor_type" = 'ATHLETE') = ("app"."progression_applications"."decided_by" IS NOT NULL));
