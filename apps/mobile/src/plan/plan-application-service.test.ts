@@ -5,7 +5,7 @@ import type { PlanApiClient } from "./plan-api-client";
 import type { ActiveWorkoutSession } from "../workout/active-workout-session";
 import type { StartWorkoutSessionOutcome } from "../workout/workout-repository";
 
-const EMPTY_OVERVIEW: PlanOverviewV1 = { currentBlock: null, sessions: [], weeklyFocus: [], schedule: { state: "NO_PLAN", displayedCycle: null } };
+const EMPTY_OVERVIEW: PlanOverviewV1 = { currentBlock: null, sessions: [], weeklyFocus: [], schedule: { state: "NO_PLAN", displayedCycle: null }, athleteLocalDate: null };
 
 function buildPreview(overrides: Partial<WorkoutPreviewV1> = {}): WorkoutPreviewV1 {
   return {
@@ -78,7 +78,7 @@ describe("PlanApplicationService", () => {
     const overview: PlanOverviewV1 = {
       currentBlock: { trainingBlockId: "b1", name: "Block 1", goal: "Hypertrophy", currentCycleOrder: 4, cycleCount: 6, daysPerWeek: 4 },
       sessions: [],
-      weeklyFocus: [], schedule: { state: "IN_CURRENT_BLOCK", displayedCycle: "CURRENT" },
+      weeklyFocus: [], schedule: { state: "IN_CURRENT_BLOCK", displayedCycle: "CURRENT" }, athleteLocalDate: null,
     };
     const apiClient = new FakePlanApiClient();
     apiClient.overview = overview;
@@ -128,13 +128,13 @@ describe("PlanApplicationService", () => {
     const gateway = new FakeWorkoutSessionGateway({ status: "STARTED", session: buildActiveSession() });
     const service = new PlanApplicationService(apiClient, gateway);
 
-    apiClient.overview = { currentBlock: null, sessions: [], weeklyFocus: [], schedule: { state: "NO_PLAN", displayedCycle: null } };
-    expect(await service.getCurrentPlan()).toEqual({ currentBlock: null, sessions: [], weeklyFocus: [], schedule: { state: "NO_PLAN", displayedCycle: null } });
+    apiClient.overview = { currentBlock: null, sessions: [], weeklyFocus: [], schedule: { state: "NO_PLAN", displayedCycle: null }, athleteLocalDate: null };
+    expect(await service.getCurrentPlan()).toEqual({ currentBlock: null, sessions: [], weeklyFocus: [], schedule: { state: "NO_PLAN", displayedCycle: null }, athleteLocalDate: null });
 
     const updated: PlanOverviewV1 = {
       currentBlock: { trainingBlockId: "b1", name: "Block 1", goal: "Hypertrophy", currentCycleOrder: 1, cycleCount: 6, daysPerWeek: 4 },
       sessions: [],
-      weeklyFocus: [], schedule: { state: "IN_CURRENT_BLOCK", displayedCycle: "CURRENT" },
+      weeklyFocus: [], schedule: { state: "IN_CURRENT_BLOCK", displayedCycle: "CURRENT" }, athleteLocalDate: null,
     };
     apiClient.overview = updated;
     // No caching field on PlanApplicationService — changing the

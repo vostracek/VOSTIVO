@@ -243,7 +243,7 @@ describe("Schedule Calendar Authority V1 (real Postgres)", () => {
   it("SCA-010: zero ACTIVE programs (only an ARCHIVED one) -> ordinary NO_PLAN state", async () => {
     const a = await athlete();
     await seedProgram(db, a.athleteProfileId, { status: "ARCHIVED", blocks: TWO_BLOCKS });
-    expect(await planAt("2026-10-07T08:00:00Z").getCurrentPlanOverview(a.actor)).toEqual({ currentBlock: null, sessions: [], weeklyFocus: [], schedule: { state: "NO_PLAN", displayedCycle: null } });
+    expect(await planAt("2026-10-07T08:00:00Z").getCurrentPlanOverview(a.actor)).toEqual({ currentBlock: null, sessions: [], weeklyFocus: [], schedule: { state: "NO_PLAN", displayedCycle: null }, athleteLocalDate: "2026-10-07" });
     expect(await resolveActiveProgram(db, a.athleteProfileId)).toEqual({ kind: "NONE" });
   });
 

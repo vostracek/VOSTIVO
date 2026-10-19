@@ -103,11 +103,11 @@ describe("MissedWorkoutFlowController", () => {
     const overviewAfterApply: PlanOverviewV1 = {
       currentBlock: { trainingBlockId: "b", name: "Block", goal: "Hypertrophy", currentCycleOrder: 0, cycleCount: 2, daysPerWeek: 3 },
       sessions: [
-        { plannedWorkoutId: IDS.upperA, name: "Upper A", focus: null, order: 0, scheduledDate: "2026-10-07", authoredScheduledDate: "2026-10-05", scheduleSource: "ADAPTED", estimatedDurationMinutes: 60, displayStatus: "TODAY", hasActiveSession: false },
-        { plannedWorkoutId: IDS.lowerA, name: "Lower A", focus: null, order: 1, scheduledDate: "2026-10-09", authoredScheduledDate: "2026-10-07", scheduleSource: "ADAPTED", estimatedDurationMinutes: 60, displayStatus: "PLANNED", hasActiveSession: false },
+        { plannedWorkoutId: IDS.upperA, name: "Upper A", focus: null, order: 0, scheduledDate: "2026-10-07", authoredScheduledDate: "2026-10-05", scheduleSource: "ADAPTED", estimatedDurationMinutes: 60, displayStatus: "TODAY", hasActiveSession: false, hasAppliedProgression: false },
+        { plannedWorkoutId: IDS.lowerA, name: "Lower A", focus: null, order: 1, scheduledDate: "2026-10-09", authoredScheduledDate: "2026-10-07", scheduleSource: "ADAPTED", estimatedDurationMinutes: 60, displayStatus: "PLANNED", hasActiveSession: false, hasAppliedProgression: false },
       ],
       weeklyFocus: [],
-      schedule: { state: "IN_CURRENT_BLOCK", displayedCycle: "CURRENT" },
+      schedule: { state: "IN_CURRENT_BLOCK", displayedCycle: "CURRENT" }, athleteLocalDate: null,
     };
     const hero = deriveTodayHeroState({ hasActiveSessionAnywhere: false, overview: { status: "ready", overview: overviewAfterApply } });
     expect(hero).toMatchObject({ kind: "training-day", session: { plannedWorkoutId: IDS.upperA, name: "Upper A" } });

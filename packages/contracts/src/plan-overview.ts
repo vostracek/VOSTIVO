@@ -45,6 +45,38 @@ export interface PlanSessionSummaryV1 {
   readonly estimatedDurationMinutes: number | null;
   readonly displayStatus: PlanSessionDisplayStatus;
   readonly hasActiveSession: boolean;
+  /**
+   * Additive (Progress & Feedback V1 Slice C): `true` only when this
+   * not-yet-performed workout's Workout Preview — the same effective
+   * prescription START uses — carries an APPLIED progression target
+   * (`WorkoutPreviewExerciseV1.progression`). Always `false` for rest days and
+   * COMPLETED / IN_PROGRESS / SKIPPED / RESCHEDULED / CANCELLED rows. A
+   * session-level signal only; the exercise detail lives in Workout Preview.
+   */
+  readonly hasAppliedProgression: boolean;
+  /**
+   * Additive (Progress & Feedback V1 Slice D): present ONLY when this
+   * occurrence's CANONICAL session (its occurrence claim) is COMPLETED — the
+   * caller's own session, never a SECONDARY one. The Plan row opens that
+   * workout's history (`/progress/workouts/:id`) instead of Workout Preview.
+   */
+  readonly completedWorkoutSessionId?: string;
+}
+
+/**
+ * Progress & Feedback V1 Slice D — a Today decision fact, NOT a history list:
+ * the caller's planned workout whose CANONICAL session was COMPLETED on the
+ * athlete-local `PlanOverviewV1.athleteLocalDate` (training time zone). It is
+ * independent of the displayed cycle — the occurrence need not be in
+ * `sessions` (e.g. a previous-cycle workout rolled forward and finished
+ * today). Several today: the most recently completed one.
+ */
+export interface PlanCompletedTodayV1 {
+  readonly plannedWorkoutId: string;
+  /** The canonical session — opens `/progress/workouts/:id`. */
+  readonly workoutSessionId: string;
+  readonly workoutName: string;
+  readonly completedLocalDate: string;
 }
 
 /**
@@ -76,4 +108,17 @@ export interface PlanOverviewV1 {
   readonly sessions: readonly PlanSessionSummaryV1[];
   readonly weeklyFocus: readonly PlanFocusAreaV1[];
   readonly schedule: PlanScheduleV1;
+  /**
+   * Additive (Progress & Feedback V1 Slice A): the server-owned
+   * athlete-local date these statuses were derived for, so the app never
+   * compares against the device date. `null` only without an athlete
+   * profile.
+   */
+  readonly athleteLocalDate: string | null;
+  /**
+   * Additive (Slice D): COMPLETED-TODAY IS SERVER-AUTHORITATIVE AND
+   * INDEPENDENT OF THE DISPLAYED PLAN CYCLE. Absent when nothing planned was
+   * completed today (or without an athlete profile).
+   */
+  readonly completedToday?: PlanCompletedTodayV1;
 }

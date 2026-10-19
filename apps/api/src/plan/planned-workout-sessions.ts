@@ -4,6 +4,8 @@ import { findCanonicalOccurrenceSessions } from "@vostivo/progression-applicatio
 export interface MatchingSessionInfo {
   readonly status: "ACTIVE" | "COMPLETED";
   readonly plannedWorkoutId: string;
+  /** The CANONICAL session's id — never a SECONDARY one. */
+  readonly workoutSessionId: string;
 }
 
 /**
@@ -22,5 +24,7 @@ export async function findMatchingSessions(
   plannedWorkoutIds: readonly string[],
 ): Promise<Map<string, MatchingSessionInfo>> {
   const canonical = await findCanonicalOccurrenceSessions(db, userId, plannedWorkoutIds);
-  return new Map([...canonical].map(([plannedWorkoutId, session]) => [plannedWorkoutId, { status: session.status, plannedWorkoutId }]));
+  return new Map(
+    [...canonical].map(([plannedWorkoutId, session]) => [plannedWorkoutId, { status: session.status, plannedWorkoutId, workoutSessionId: session.workoutSessionId }]),
+  );
 }

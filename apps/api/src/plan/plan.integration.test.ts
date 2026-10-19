@@ -244,7 +244,9 @@ describe("Plan read API — server-side (real Postgres)", () => {
 
     const overview = await planRead.getCurrentPlanOverview({ userId: athlete.userId, athleteProfileId: athlete.athleteProfileId });
 
-    expect(overview).toEqual({ currentBlock: null, sessions: [], weeklyFocus: [], schedule: { state: "NO_PLAN", displayedCycle: null } });
+    // System clock here: the athlete-local date is today's, whatever day the suite runs.
+    expect(overview.athleteLocalDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(overview).toEqual({ currentBlock: null, sessions: [], weeklyFocus: [], schedule: { state: "NO_PLAN", displayedCycle: null }, athleteLocalDate: overview.athleteLocalDate });
   });
 
   it("rest days are synthesized for cycle dates with no scheduled workout", async () => {

@@ -28,6 +28,18 @@ export interface WorkoutPreviewExerciseV1 {
    * authored identity. The same value is on the prescription exercise.
    */
   readonly substitution?: PrescribedExerciseSubstitutionV1;
+  /**
+   * Additive (Progress & Feedback V1 Slice A): present only when the
+   * WORKING target comes from an applied progression ("62.5 kg · up from
+   * 60 kg") — `previousLoad` is the load that application replaced. Absent
+   * for authored targets and for substitutes (their load is their own).
+   */
+  readonly progression?: WorkoutPreviewProgressionV1;
+}
+
+export interface WorkoutPreviewProgressionV1 {
+  readonly applicationId: string;
+  readonly previousLoad: ExternalWeightLoad;
 }
 
 /**
@@ -54,7 +66,15 @@ export interface WorkoutPreviewV1 {
   readonly estimatedDurationMinutes: number | null;
   readonly displayStatus: PlanSessionDisplayStatus;
   readonly hasActiveSession: boolean;
+  /**
+   * Progress & Feedback V1 Slice D: `false` once the occurrence has a
+   * canonical session (ACTIVE -> Resume; COMPLETED -> history/review only —
+   * HISTORICAL REALITY WINS). Closes the ordinary Start path only; the sync
+   * START command still accepts a deliberate SECONDARY session.
+   */
   readonly canStart: boolean;
+  /** Additive (Slice D): the canonical COMPLETED session of this occurrence, for "View workout". */
+  readonly completedWorkoutSessionId?: string;
   readonly exercises: readonly WorkoutPreviewExerciseV1[];
   readonly prescription: WorkoutPrescriptionV1;
 }

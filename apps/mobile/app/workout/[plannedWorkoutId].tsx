@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import type { WorkoutPreviewExerciseV1, WorkoutPreviewV1 } from "@vostivo/contracts";
+import type { WorkoutPreviewV1 } from "@vostivo/contracts";
 import { getPlanApplicationService, getWorkoutSyncCoordinator } from "../../src/plan/plan-runtime";
-import { formatLoad, formatRepTarget } from "../../src/workout/format-target";
+import { PREVIEW_FOOTER_COPY, previewExerciseView, previewFooter, type PreviewExerciseView } from "../../src/workout/workout-preview-presentation";
+import { isPreviewOnlySource } from "../../src/progress/progress-routes";
 import { colors, radius, spacing, touchTarget, typography } from "../../src/design/tokens";
 
 /**
@@ -13,6 +14,15 @@ import { colors, radius, spacing, touchTarget, typography } from "../../src/desi
  * primary Start Workout action. Secondary actions (Change day / Adjust
  * time / Edit) do not exist yet — per spec section 32, they are simply
  * not shown, not shipped as disabled fake controls.
+ *
+ * Progress & Feedback V1 Slice C: an exercise whose target comes from an
+ * APPLIED progression shows "62.5kg · Up from 60kg" (server provenance
+ * only). Opened from Progress (`?source=progress`) the preview is READ ONLY:
+ * context for the next target, never a deep-link START.
+ *
+ * Slice D: an occurrence whose canonical session is COMPLETED (server
+ * `displayStatus`, `canStart: false`) is READ ONLY on every path — "Workout
+ * completed" + "View workout" (canonical history), no Start.
  */
 type ScreenState =
   | { status: "loading" }
@@ -22,7 +32,8 @@ type ScreenState =
   | { status: "start-error"; message: string; preview: WorkoutPreviewV1 };
 
 export default function WorkoutPreviewScreen(): React.JSX.Element {
-  const { plannedWorkoutId } = useLocalSearchParams<{ plannedWorkoutId: string }>();
+  const { plannedWorkoutId, source } = useLocalSearchParams<{ plannedWorkoutId: string; source?: string }>();
+  const previewOnly = isPreviewOnlySource(source);
   const router = useRouter();
   const [state, setState] = useState<ScreenState>({ status: "loading" });
 
@@ -48,6 +59,7 @@ export default function WorkoutPreviewScreen(): React.JSX.Element {
   const onStartWorkout = useCallback(async () => {
     if (state.status !== "ready" && state.status !== "start-error") return;
     const { preview } = state;
+    if (previewFooter(preview, previewOnly).kind !== "START") return;
     setState({ status: "starting", preview });
     try {
       // The real chain (spec section 33): the already-fetched
@@ -70,9 +82,10 @@ export default function WorkoutPreviewScreen(): React.JSX.Element {
     } catch (error: unknown) {
       setState({ status: "start-error", message: error instanceof Error ? error.message : String(error), preview });
     }
-  }, [state, router]);
+  }, [state, router, previewOnly]);
 
   const currentPreview = state.status === "ready" || state.status === "starting" || state.status === "start-error" ? state.preview : undefined;
+  const footer = currentPreview === undefined ? null : previewFooter(currentPreview, previewOnly);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -93,7 +106,29 @@ export default function WorkoutPreviewScreen(): React.JSX.Element {
         {state.status === "start-error" ? <Text style={styles.errorText}>{state.message}</Text> : null}
         {currentPreview !== undefined ? <PreviewContent preview={currentPreview} /> : null}
       </ScrollView>
-      {currentPreview !== undefined ? (
+      {footer?.kind === "PREVIEW_ONLY" ? (
+        <View style={styles.footer}>
+          <Text style={styles.previewOnlyText}>{footer.text}</Text>
+        </View>
+      ) : null}
+      {footer?.kind === "COMPLETED" ? (
+        <View style={[styles.footer, styles.completedFooter]}>
+          <Text style={styles.completedText}>{footer.text}</Text>
+          {footer.viewWorkoutHref !== null ? (
+            <Pressable
+              onPress={() => {
+                if (footer.viewWorkoutHref !== null) router.push(footer.viewWorkoutHref);
+              }}
+              style={styles.viewWorkoutButton}
+              accessibilityRole="button"
+              accessibilityLabel="View completed workout"
+            >
+              <Text style={styles.viewWorkoutText}>{PREVIEW_FOOTER_COPY.viewWorkout}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+      {footer?.kind === "START" ? (
         <View style={styles.footer}>
           <Pressable
             disabled={state.status === "starting"}
@@ -121,21 +156,26 @@ function PreviewContent({ preview }: { preview: WorkoutPreviewV1 }): React.JSX.E
 
       <View style={styles.exerciseList}>
         {preview.exercises.map((exercise) => (
-          <ExerciseCard key={exercise.plannedExerciseId} exercise={exercise} />
+          <ExerciseCard key={exercise.plannedExerciseId} exercise={previewExerciseView(exercise, preview)} />
         ))}
       </View>
     </View>
   );
 }
 
-function ExerciseCard({ exercise }: { exercise: WorkoutPreviewExerciseV1 }): React.JSX.Element {
+function ExerciseCard({ exercise }: { exercise: PreviewExerciseView }): React.JSX.Element {
   return (
-    <View style={styles.exerciseCard}>
-      <Text style={styles.exerciseName}>{exercise.displayName}</Text>
-      {exercise.sets.map((set) => (
-        <Text key={set.plannedSetId} style={styles.setLine}>
-          {formatRepTarget(set.targetReps)}
-          {set.targetLoad !== null ? ` · ${formatLoad(set.targetLoad)}` : ""}
+    <View style={styles.exerciseCard} accessible accessibilityLabel={exercise.accessibilityLabel}>
+      <Text style={styles.exerciseName}>{exercise.title}</Text>
+      {exercise.progression === null ? null : (
+        <View style={styles.progressionRow}>
+          <Text style={styles.progressionTarget}>{exercise.progression.target}</Text>
+          <Text style={styles.progressionContext}>{exercise.progression.upFrom}</Text>
+        </View>
+      )}
+      {exercise.setLines.map((line, index) => (
+        <Text key={`${index}:${line}`} style={styles.setLine}>
+          {line}
         </Text>
       ))}
     </View>
@@ -166,6 +206,20 @@ const styles = StyleSheet.create({
   },
   exerciseName: { ...typography.bodyStrong, color: colors.textPrimary, marginBottom: spacing.xs },
   setLine: { ...typography.body, color: colors.textSecondary },
+  progressionRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", columnGap: spacing.sm, marginBottom: spacing.xs },
+  progressionTarget: { ...typography.heading, color: colors.textPrimary },
+  progressionContext: { ...typography.caption, color: colors.textSecondary },
+  previewOnlyText: { ...typography.caption, color: colors.textSecondary, textAlign: "center" },
+  completedFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
+  completedText: { ...typography.bodyStrong, color: colors.textPrimary },
+  viewWorkoutButton: {
+    minHeight: touchTarget.minHeight,
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceElevated,
+  },
+  viewWorkoutText: { ...typography.bodyStrong, color: colors.textPrimary },
   footer: {
     padding: spacing.lg,
     borderTopWidth: StyleSheet.hairlineWidth,

@@ -2,31 +2,13 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, touchTarget, typography } from "../design/tokens";
-
-type NavTarget = "today" | "plan";
-
-interface NavItem {
-  readonly label: string;
-  readonly target: NavTarget | null;
-}
-
-const ITEMS: readonly NavItem[] = [
-  { label: "Today", target: "today" },
-  { label: "Plan", target: "plan" },
-  { label: "Progress", target: null },
-  { label: "Profile", target: null },
-];
-
-const ROUTE_BY_TARGET: Record<NavTarget, "/" | "/plan"> = {
-  today: "/",
-  plan: "/plan",
-};
+import { NAV_ITEMS, ROUTE_BY_TARGET, type NavTarget } from "./bottom-nav-items";
 
 /**
- * Persistent bottom navigation (Today V1 Foundation task §2) — Today and
- * Plan both now navigate for real; Progress/Profile remain visible but
- * explicitly non-interactive (task §2: "leave them visible-but-disabled"
- * — they still have no screen behind them). `router.replace`, not `push`:
+ * Persistent bottom navigation (Today V1 Foundation task §2) — Today,
+ * Plan and Progress (Progress & Feedback V1 Slice B) navigate for real;
+ * Profile remains visible but explicitly non-interactive (it still has no
+ * screen behind it). `router.replace`, not `push`:
  * there is no `Tabs` navigator here, only a `Stack` (`app/_layout.tsx`),
  * so switching tabs must not grow the stack — repeatedly bouncing
  * Today<->Plan must not leave a deepening back-stack behind it.
@@ -37,7 +19,7 @@ export function BottomNav({ active }: { active: NavTarget }): React.JSX.Element 
 
   return (
     <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
-      {ITEMS.map((item) => {
+      {NAV_ITEMS.map((item) => {
         const isActive = item.target === active;
         const enabled = item.target !== null;
 

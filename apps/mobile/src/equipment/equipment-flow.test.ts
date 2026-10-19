@@ -63,7 +63,7 @@ describe("Today entry point eligibility (shared with Adjust time — one interpr
     scheduleSource: "AUTHORED",
     estimatedDurationMinutes: 60,
     displayStatus: "TODAY",
-    hasActiveSession: false,
+    hasActiveSession: false, hasAppliedProgression: false,
     ...overrides,
   });
 

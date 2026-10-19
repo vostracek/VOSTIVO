@@ -1,11 +1,12 @@
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   plannedExercises,
   plannedSets,
   plannedWorkouts,
   programVersions,
   programs,
+  progressionApplications,
   trainingBlocks,
   trainingCycles,
   type Database,
@@ -42,9 +43,10 @@ import { resolveEffectiveEquipmentSubstitutions, type EffectiveEquipmentSubstitu
 import { loadActiveScheduleOverlay, resolveEffectiveScheduledDate } from "../schedule/effective-schedule-source.js";
 import type { AuthenticatedActor } from "../auth/authenticated-actor.js";
 import { findMatchingSessions, type MatchingSessionInfo } from "./planned-workout-sessions.js";
+import { findCompletedToday } from "./completed-today.js";
 
 const NO_PLAN_SCHEDULE: PlanScheduleV1 = { state: "NO_PLAN", displayedCycle: null };
-const EMPTY_PLAN_OVERVIEW: PlanOverviewV1 = { currentBlock: null, sessions: [], weeklyFocus: [], schedule: NO_PLAN_SCHEDULE };
+const EMPTY_PLAN_OVERVIEW: PlanOverviewV1 = { currentBlock: null, sessions: [], weeklyFocus: [], schedule: NO_PLAN_SCHEDULE, athleteLocalDate: null };
 
 type TrainingBlockRow = typeof trainingBlocks.$inferSelect;
 type TrainingCycleRow = typeof trainingCycles.$inferSelect;
@@ -84,10 +86,14 @@ export class PlanReadService {
     const scheduleContext = await resolveAthleteScheduleContext(this.db, actor, this.clock.now());
     if (scheduleContext === undefined) return { overview: EMPTY_PLAN_OVERVIEW, scheduleContext };
     const { program, calendar, date } = scheduleContext;
+    // Slice D: one bounded query, independent of which cycle is displayed below.
+    const completedToday = await findCompletedToday(this.db, { userId: actor.userId, athleteProfileId: scheduleContext.athleteProfileId }, date);
+    const todayFields: Pick<PlanOverviewV1, "athleteLocalDate" | "completedToday"> = { athleteLocalDate: date.localDate, ...(completedToday === undefined ? {} : { completedToday }) };
+    const emptyOverview: PlanOverviewV1 = { ...EMPTY_PLAN_OVERVIEW, ...todayFields };
 
     // Only genuine configuration defects are errors — never an arbitrary first row.
     if (program.kind === "AMBIGUOUS") throw new ConflictException("ACTIVE_PROGRAM_AMBIGUOUS");
-    if (program.kind === "NONE" || calendar === null) return { overview: EMPTY_PLAN_OVERVIEW, scheduleContext };
+    if (program.kind === "NONE" || calendar === null) return { overview: emptyOverview, scheduleContext };
     if (calendar.kind === "AMBIGUOUS") throw new ConflictException("CURRENT_SCHEDULE_AMBIGUOUS");
 
     if (calendar.kind === "NO_SCHEDULE") {
@@ -98,7 +104,7 @@ export class PlanReadService {
         .where(eq(trainingBlocks.programVersionId, program.programVersionId))
         .orderBy(asc(trainingBlocks.orderIndex));
       const lastBlock = blocks.at(-1);
-      return { overview: { ...EMPTY_PLAN_OVERVIEW, weeklyFocus: lastBlock === undefined ? [] : toPlanFocusAreas(lastBlock) }, scheduleContext };
+      return { overview: { ...emptyOverview, weeklyFocus: lastBlock === undefined ? [] : toPlanFocusAreas(lastBlock) }, scheduleContext };
     }
 
     // CURRENT MEANS DATE-CONTAINING: outside a current cycle the screens
@@ -134,9 +140,10 @@ export class PlanReadService {
     const workouts = blockWorkouts.filter(({ workout }) => workout.trainingCycleId === cycle.id).map(({ workout }) => workout);
 
     const matchingSessions = await this.findMatchingSessions(actor.userId, inView.map((o) => o.plannedWorkoutId));
-    const workoutSessionsForDate: PlanSessionSummaryV1[] = inView.map((o) =>
+    const summaries: PlanSessionSummaryV1[] = inView.map((o) =>
       toSessionSummary({ ...toDomainPlannedWorkout(o.workout), scheduledDate: o.effectiveScheduledLocalDate }, o, matchingSessions.get(o.plannedWorkoutId), date.localDate),
     );
+    const workoutSessionsForDate = await Promise.all(summaries.map((summary) => this.withAppliedProgressionSignal(actor, summary)));
     const sessions = interleaveRestDays(workoutSessionsForDate, cycle);
 
     const currentBlockDto: PlanCurrentBlockV1 = {
@@ -148,7 +155,7 @@ export class PlanReadService {
       daysPerWeek: workouts.length,
     };
 
-    return { overview: { currentBlock: currentBlockDto, sessions, weeklyFocus: toPlanFocusAreas(block), schedule }, scheduleContext };
+    return { overview: { currentBlock: currentBlockDto, sessions, weeklyFocus: toPlanFocusAreas(block), schedule, ...todayFields }, scheduleContext };
   }
 
   async getWorkoutPreview(
@@ -204,24 +211,36 @@ export class PlanReadService {
         const authoredWorkingLoad = deriveUniformWorkingLoad(
           setRows.filter((s) => s.setType === "WORKING"),
         );
-        const effectiveWorkingLoad =
+        const resolution =
           exerciseRow.exerciseRef !== null && authoredWorkingLoad !== null
-            ? (
-                await resolveEffectiveWorkingLoadForOccurrence(this.db, {
-                  userId: actor.userId,
-                  programVersionId: ownedWorkout.programVersionId,
-                  trainingBlockId: ownedWorkout.trainingBlockId,
-                  workoutOrderIndex: workoutRow.orderIndex,
-                  exerciseOrderIndex: exerciseRow.orderIndex,
-                  exerciseRef: exerciseRow.exerciseRef,
-                  targetCycleOrderIndex: ownedWorkout.trainingCycleOrderIndex,
-                  authoredWorkingLoad,
-                })
-              ).load
+            ? await resolveEffectiveWorkingLoadForOccurrence(this.db, {
+                userId: actor.userId,
+                programVersionId: ownedWorkout.programVersionId,
+                trainingBlockId: ownedWorkout.trainingBlockId,
+                workoutOrderIndex: workoutRow.orderIndex,
+                exerciseOrderIndex: exerciseRow.orderIndex,
+                exerciseRef: exerciseRow.exerciseRef,
+                targetCycleOrderIndex: ownedWorkout.trainingCycleOrderIndex,
+                authoredWorkingLoad,
+              })
             : null;
 
-        return { exerciseRow, setRows, effectiveWorkingLoad };
+        return { exerciseRow, setRows, effectiveWorkingLoad: resolution?.load ?? null, sourceApplicationId: resolution?.sourceApplicationId ?? null };
       }),
+    );
+
+    // Progress & Feedback V1 Slice A: "up from" provenance — the load the
+    // governing applied progression replaced (its own expected effective load).
+    const sourceApplicationIds = exerciseDetails.map((d) => d.sourceApplicationId).filter((id): id is string => id !== null);
+    const previousLoadByApplication = new Map(
+      sourceApplicationIds.length === 0
+        ? []
+        : (
+            await this.db
+              .select({ id: progressionApplications.id, previousLoad: progressionApplications.expectedEffectiveLoad })
+              .from(progressionApplications)
+              .where(and(eq(progressionApplications.userId, actor.userId), inArray(progressionApplications.id, sourceApplicationIds)))
+          ).map((row) => [row.id, row.previousLoad]),
     );
 
     const matchingSessions = await this.findMatchingSessions(actor.userId, [workoutRow.id]);
@@ -269,8 +288,9 @@ export class PlanReadService {
     const displayStatus = deriveSessionDisplayStatus({ ...domainWorkout, scheduledDate: effectiveScheduledDate }, matchingSession, todayIsoDate);
     const hasActiveSession = matchingSession?.status === "ACTIVE";
 
-    const exercises: WorkoutPreviewExerciseV1[] = exerciseDetails.map(({ exerciseRow, setRows, effectiveWorkingLoad }) => {
+    const exercises: WorkoutPreviewExerciseV1[] = exerciseDetails.map(({ exerciseRow, setRows, effectiveWorkingLoad, sourceApplicationId }) => {
       const substitution = substitutions.get(exerciseRow.id);
+      const previousLoad = sourceApplicationId === null ? undefined : previousLoadByApplication.get(sourceApplicationId);
       return {
         plannedExerciseId: exerciseRow.id,
         displayName: substitution?.substituteDisplayName ?? exerciseRow.displayName,
@@ -285,6 +305,7 @@ export class PlanReadService {
           }),
         ),
         ...(substitution === undefined ? {} : { substitution: substitution.provenance }),
+        ...(substitution === undefined && sourceApplicationId !== null && previousLoad !== undefined ? { progression: { applicationId: sourceApplicationId, previousLoad } } : {}),
       };
     });
 
@@ -295,10 +316,25 @@ export class PlanReadService {
       estimatedDurationMinutes: workoutRow.estimatedDurationMinutes,
       displayStatus,
       hasActiveSession,
-      canStart: !hasActiveSession,
+      // Slice D: an occurrence with a canonical session is never ordinarily startable again.
+      canStart: matchingSession === undefined,
+      ...(matchingSession?.status === "COMPLETED" ? { completedWorkoutSessionId: matchingSession.workoutSessionId } : {}),
       exercises,
       prescription,
     };
+  }
+
+  /**
+   * Progress & Feedback V1 Slice C: the Plan's session-level progression
+   * signal is read from the occurrence's OWN Workout Preview — the single
+   * effective-prescription authority (progression overlay, equipment
+   * substitution that never inherits authored progression) — never a second
+   * calculation. Only for workouts still to be performed.
+   */
+  private async withAppliedProgressionSignal(actor: AuthenticatedActor, summary: PlanSessionSummaryV1): Promise<PlanSessionSummaryV1> {
+    if (summary.plannedWorkoutId === null || (summary.displayStatus !== "TODAY" && summary.displayStatus !== "PLANNED")) return summary;
+    const preview = await this.getWorkoutPreview(actor, summary.plannedWorkoutId);
+    return { ...summary, hasAppliedProgression: preview?.exercises.some((exercise) => exercise.progression !== undefined) ?? false };
   }
 
   private async findMatchingSessions(
@@ -351,6 +387,7 @@ function interleaveRestDays(
       estimatedDurationMinutes: null,
       displayStatus: "REST",
       hasActiveSession: false,
+      hasAppliedProgression: false,
     });
   }
 
@@ -386,6 +423,9 @@ function toSessionSummary(
     estimatedDurationMinutes: workout.estimatedDurationMinutes,
     displayStatus: deriveSessionDisplayStatus(workout, matchingSession, todayIsoDate),
     hasActiveSession: matchingSession?.status === "ACTIVE",
+    // Filled from the occurrence's Workout Preview by `withAppliedProgressionSignal`.
+    hasAppliedProgression: false,
+    ...(matchingSession?.status === "COMPLETED" ? { completedWorkoutSessionId: matchingSession.workoutSessionId } : {}),
   };
 }
 

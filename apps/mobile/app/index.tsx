@@ -15,6 +15,7 @@ import {
   logTechnicalFailure,
 } from "../src/plan/plan-runtime";
 import { deriveTodayHeroState, type TodayOverviewState } from "../src/plan/today-derivation";
+import { completedTodayView } from "../src/plan/today-completed-presentation";
 import { formatLoad } from "../src/workout/format-target";
 import { BottomNav } from "../src/ui/bottom-nav";
 import { AvailableTimeSheet } from "../src/available-time/available-time-sheet";
@@ -214,7 +215,8 @@ export default function TodayScreen(): React.JSX.Element {
   );
 
   const pendingProgressionItem = progressionState.status === "ready" ? progressionState.item : null;
-  const missedCard = missedWorkoutCard(missedState);
+  // Slice D: today's training is done — no missed-workout adaptation competes with that.
+  const missedCard = heroState.kind === "completed-today" ? null : missedWorkoutCard(missedState);
   const guidedSetupItem = guidedSetupState.status === "ready" ? guidedSetupState.item : null;
 
   return (
@@ -228,6 +230,7 @@ export default function TodayScreen(): React.JSX.Element {
           onResume={() => router.push("/active-workout")}
           onRetry={reload}
           onViewPlan={() => router.replace("/plan")}
+          onViewWorkout={(href) => router.push(href)}
           onAdjustTime={
             adjustableSession === null
               ? null
@@ -347,6 +350,7 @@ function WorkoutHero({
   onResume,
   onRetry,
   onViewPlan,
+  onViewWorkout,
   onAdjustTime,
   onEquipment,
   equipmentLabel,
@@ -357,6 +361,8 @@ function WorkoutHero({
   onResume: () => void;
   onRetry: () => void;
   onViewPlan: () => void;
+  /** Slice D — the canonical completed session's history. */
+  onViewWorkout: (href: `/progress/workouts/${string}`) => void;
   /** Available-Time Slice D — `null` hides the action (no eligible workout / Resume wins). */
   onAdjustTime: (() => void) | null;
   /** Temporary Equipment Slice D — `null` hides the action (same eligibility as Adjust time). */
@@ -419,6 +425,29 @@ function WorkoutHero({
           ) : null}
         </View>
       );
+
+    case "completed-today": {
+      // Slice D: calm, no primary training action left — only the history of what was done.
+      const view = completedTodayView(heroState.completed, heroState.nextWorkout);
+      return (
+        <View style={styles.heroCard}>
+          <View accessible accessibilityLabel={view.accessibilityLabel} style={styles.completedSummary}>
+            <Text style={styles.heroMicroLabel}>{view.microLabel}</Text>
+            <Text style={styles.heroTitle}>{view.title}</Text>
+            <Text style={styles.secondaryText}>{view.body}</Text>
+          </View>
+          <Pressable onPress={() => onViewWorkout(view.viewWorkoutHref)} style={styles.secondaryButton} accessibilityRole="button" accessibilityLabel="View completed workout">
+            <Text style={styles.secondaryButtonText}>{view.viewWorkoutLabel}</Text>
+          </Pressable>
+          {view.next !== null ? (
+            <View style={styles.nextWorkoutRow}>
+              <Text style={styles.nextWorkoutLabel}>Next</Text>
+              <Text style={styles.nextWorkoutName}>{view.next}</Text>
+            </View>
+          ) : null}
+        </View>
+      );
+    }
 
     case "training-day": {
       const { session } = heroState;
@@ -497,6 +526,7 @@ const styles = StyleSheet.create({
   },
   heroCardActive: { borderColor: colors.signal },
   heroCardSkeleton: { opacity: 0.6 },
+  completedSummary: { gap: spacing.sm },
   heroMicroLabel: { ...typography.tiny, color: colors.textTertiary, textTransform: "uppercase" },
   heroTitle: { ...typography.title, color: colors.textPrimary },
   heroFocus: { ...typography.body, color: colors.textSecondary },

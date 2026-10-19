@@ -6,7 +6,7 @@ import type { PlanOverviewV1, PlanSessionSummaryV1 } from "@vostivo/contracts";
 import { initializeLocalDatabase } from "../src/local-database/client";
 import { getPlanApplicationService } from "../src/plan/plan-runtime";
 import { BottomNav } from "../src/ui/bottom-nav";
-import { sessionScheduleNote } from "../src/plan/plan-session-schedule";
+import { planRowAccessibilityLabel, planRowTarget, sessionProgressionNote, sessionScheduleNote, type PlanRowTarget } from "../src/plan/plan-session-schedule";
 import { colors, radius, spacing, typography } from "../src/design/tokens";
 
 /**
@@ -83,7 +83,12 @@ export default function PlanScreen(): React.JSX.Element {
         {state.status === "error" ? <ErrorState message={state.message} onRetry={reload} /> : null}
         {state.status === "no-program" ? <NoProgramState /> : null}
         {state.status === "ready" ? (
-          <ReadyPlan overview={state.overview} onOpenWorkout={(plannedWorkoutId) => router.push(`/workout/${plannedWorkoutId}`)} />
+          <ReadyPlan
+            overview={state.overview}
+            onOpenRow={(target) => {
+              if (target.kind !== "NONE") router.push(target.href);
+            }}
+          />
         ) : null}
       </ScrollView>
       <BottomNav active="plan" />
@@ -93,10 +98,10 @@ export default function PlanScreen(): React.JSX.Element {
 
 function ReadyPlan({
   overview,
-  onOpenWorkout,
+  onOpenRow,
 }: {
   overview: PlanOverviewV1;
-  onOpenWorkout: (plannedWorkoutId: string) => void;
+  onOpenRow: (target: PlanRowTarget) => void;
 }): React.JSX.Element {
   const block = overview.currentBlock;
   return (
@@ -113,7 +118,7 @@ function ReadyPlan({
       <Text style={styles.sectionHeading}>This Week</Text>
       <View style={styles.sessionList}>
         {overview.sessions.map((session) => (
-          <SessionRow key={session.plannedWorkoutId ?? session.scheduledDate ?? session.order} session={session} onPress={onOpenWorkout} />
+          <SessionRow key={session.plannedWorkoutId ?? session.scheduledDate ?? session.order} session={session} onPress={onOpenRow} />
         ))}
       </View>
 
@@ -140,24 +145,27 @@ function SessionRow({
   onPress,
 }: {
   session: PlanSessionSummaryV1;
-  onPress: (plannedWorkoutId: string) => void;
+  onPress: (target: PlanRowTarget) => void;
 }): React.JSX.Element {
   const isRest = session.plannedWorkoutId === null;
+  // Slice D: COMPLETED -> the canonical workout's history (review), never another Start.
+  const target = planRowTarget(session);
   const isEmphasized = session.displayStatus === "TODAY" || session.displayStatus === "IN_PROGRESS";
   const scheduleNote = sessionScheduleNote(session);
+  const progressionNote = sessionProgressionNote(session);
 
   return (
     <Pressable
       disabled={isRest}
-      onPress={() => {
-        if (session.plannedWorkoutId !== null) onPress(session.plannedWorkoutId);
-      }}
+      onPress={() => onPress(target)}
       accessibilityRole={isRest ? undefined : "button"}
-      accessibilityLabel={`${session.name}${session.focus !== null ? `, ${session.focus}` : ""}`}
+      accessibilityLabel={planRowAccessibilityLabel(session, progressionNote)}
+      accessibilityHint={target.kind === "HISTORY" ? "Opens workout history" : undefined}
       style={({ pressed }) => [
         styles.sessionRow,
         isRest && styles.sessionRowRest,
         isEmphasized && styles.sessionRowToday,
+        session.displayStatus === "COMPLETED" && styles.sessionRowCompleted,
         pressed && !isRest && styles.sessionRowPressed,
       ]}
     >
@@ -167,6 +175,8 @@ function SessionRow({
         {/* Missed Workout Slice D: the server's EFFECTIVE schedule; authored context stays secondary. */}
         {scheduleNote.kind === "ADJUSTED" && scheduleNote.originally !== null ? <Text style={styles.sessionScheduleContext}>{scheduleNote.originally}</Text> : null}
         {scheduleNote.kind === "NEEDS_TRAINING_DAY" ? <Text style={styles.sessionScheduleContext}>{scheduleNote.label}</Text> : null}
+        {/* Progress & Feedback Slice C: server signal only; details in Workout Preview. */}
+        {progressionNote !== null ? <Text style={styles.sessionScheduleContext}>{progressionNote}</Text> : null}
       </View>
       <View style={styles.sessionRowMeta}>
         {session.estimatedDurationMinutes !== null ? (
@@ -263,6 +273,8 @@ const styles = StyleSheet.create({
   },
   sessionRowToday: { borderColor: colors.signal },
   sessionRowRest: { opacity: 0.55 },
+  // Completed stays readable but visually secondary to what is still ahead.
+  sessionRowCompleted: { opacity: 0.75 },
   sessionRowPressed: { opacity: 0.8 },
   sessionRowText: { flexShrink: 1, gap: 2 },
   sessionName: { ...typography.bodyStrong, color: colors.textPrimary },

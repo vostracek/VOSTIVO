@@ -7,6 +7,7 @@ import { MeModule } from "./me/me.module.js";
 import { WorkoutModule } from "./workout/workout.module.js";
 import { PlanModule } from "./plan/plan.module.js";
 import { ProgressionModule } from "./progression/progression.module.js";
+import { ProgressModule } from "./progress/progress.module.js";
 import { loadApiConfig } from "./common/config/api-config.js";
 
 @Module({
@@ -25,6 +26,7 @@ import { loadApiConfig } from "./common/config/api-config.js";
     WorkoutModule,
     PlanModule,
     ProgressionModule,
+    ProgressModule,
   ],
 })
 export class AppModule {}

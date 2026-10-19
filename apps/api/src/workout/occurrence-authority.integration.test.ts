@@ -333,6 +333,38 @@ describe("Planned Workout Occurrence Authority V1 (real Postgres)", () => {
     expect(await claimsFor(athlete.userId)).toMatchObject([{ canonicalWorkoutSessionId: deviceA.workoutSessionId }]); // never promoted
   });
 
+  it("PROGRESS-D-SEC: a FINISHed (partial) canonical occurrence closes the ordinary Start path, yet an explicit START is still accepted as SECONDARY and never surfaces", async () => {
+    const athlete = await createAthlete();
+    const seeded = await seed(athlete);
+    const prescription = await prescriptionOf(athlete, seeded.workoutId);
+    const canonical = start(prescription);
+    expect((await processWorkoutCommand(db, boss, athlete.userId, canonical)).outcome).toBe("APPLIED");
+    // Partial: 1 of 3 Bench working sets, then an explicit FINISH -> COMPLETED.
+    await logBenchAndFinish(athlete, canonical.workoutSessionId, seeded, [[0, 10]]);
+
+    const completedPreview = (await planRead.getWorkoutPreview(athlete, seeded.workoutId))!;
+    expect(completedPreview).toMatchObject({ displayStatus: "COMPLETED", hasActiveSession: false, canStart: false, completedWorkoutSessionId: canonical.workoutSessionId });
+    const overview = await planRead.getCurrentPlanOverview(athlete);
+    const row = overview.sessions.find((s) => s.plannedWorkoutId === seeded.workoutId)!;
+    expect(row).toMatchObject({ displayStatus: "COMPLETED", completedWorkoutSessionId: canonical.workoutSessionId, hasAppliedProgression: false });
+    // A partial FINISH is a completed-today fact like any other.
+    expect(overview.completedToday).toMatchObject({ plannedWorkoutId: seeded.workoutId, workoutSessionId: canonical.workoutSessionId, completedLocalDate: overview.athleteLocalDate });
+
+    // Domain capability preserved: a deliberate second START of the same occurrence is still ACCEPTED (SECONDARY).
+    const secondary = start(prescription);
+    expect((await processWorkoutCommand(db, boss, athlete.userId, secondary)).outcome).toBe("APPLIED");
+    expect((await rolesOf(athlete.userId, [secondary.workoutSessionId])).get(secondary.workoutSessionId)).toBe("SECONDARY");
+    await logBenchAndFinish(athlete, secondary.workoutSessionId, seeded, [[0, 12], [1, 12], [2, 12]]);
+
+    // ...and it never replaces the canonical id anywhere.
+    expect((await planRead.getWorkoutPreview(athlete, seeded.workoutId))!.completedWorkoutSessionId).toBe(canonical.workoutSessionId);
+    const after = await planRead.getCurrentPlanOverview(athlete);
+    expect(after.sessions.find((s) => s.plannedWorkoutId === seeded.workoutId)!.completedWorkoutSessionId).toBe(canonical.workoutSessionId);
+    // The SECONDARY finished later, yet completed-today stays the canonical session.
+    expect(after.completedToday?.workoutSessionId).toBe(canonical.workoutSessionId);
+    expect(JSON.stringify(after)).not.toContain(secondary.workoutSessionId);
+  });
+
   it("OCC-022: the Available-Time preview guard sees the canonical occurrence as already started", async () => {
     const athlete = await createAthlete();
     const seeded = await seed(athlete);

@@ -110,3 +110,4 @@ export {
   type OccurrenceClaimResult,
   type CanonicalOccurrenceSession,
 } from "./planned-occurrence-authority.js";
+export { resolveExerciseDisplayName, type ProgramSlotIdentityRef } from "./exercise-display-name.js";

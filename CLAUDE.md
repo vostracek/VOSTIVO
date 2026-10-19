@@ -1437,6 +1437,99 @@ Full Athlete Journey E2E Audit V1: COMPLETE (2026-10-17) — AUDIT COMPLETE,
                                   sign-in UX): docs/audits/
                                   ATHLETE-JOURNEY-E2E-AUDIT-V1.md.
 
+Progress & Feedback V1:           FULLY CLOSED (2026-10-19; scope approved
+                                  2026-10-18). Spec:
+                                  docs/domain/PROGRESS-AND-FEEDBACK-V1.md.
+  - Slice A — Progress Read Model: CLOSED / tech-lead approved
+                                  (2026-10-18). Read-only
+                                  `apps/api/src/progress/`: GET /progress,
+                                  /progress/workouts (keyset), /progress/
+                                  workouts/:id, /progress/exercises/:ref.
+                                  CANONICAL-ONLY (occurrence claim; SECONDARY
+                                  never counts), owner-only (BOLA 404),
+                                  substitutes never merged, improvements =
+                                  APPLIED progression_applications only.
+                                  Additive: PlanOverviewV1.athleteLocalDate,
+                                  WorkoutPreviewExerciseV1.progression
+                                  ("up from"). No migration.
+  - Slice B — Mobile Progress MVP: CLOSED / tech-lead approved
+                                  (2026-10-18; human acceptance deferred to
+                                  Slice E). Progress tab is real
+                                  (`app/progress/`: root, workout history
+                                  with "Load more", workout detail, exercise
+                                  history); framework-free controllers in
+                                  `apps/mobile/src/progress/`; server is the
+                                  only semantic authority (cursor verbatim,
+                                  exact performed exerciseRef, no derived
+                                  metrics). Closure fix: history days are
+                                  ATHLETE-LOCAL — server `completedLocalDate`
+                                  (training time zone via
+                                  resolveScheduleDateContext), never the
+                                  device zone.
+  - Slice C — Progression feedback + next exposure: CLOSED / tech-lead
+                                  approved (2026-10-19). Workout
+                                  Preview shows "62.5kg · Up from 60kg" from
+                                  server `progression` only; Progress "View
+                                  next workout" opens the exact
+                                  nextExposure as a READ-ONLY preview
+                                  (`?source=progress`, no Start); Plan row
+                                  "Progression applied" from additive
+                                  `PlanSessionSummaryV1.hasAppliedProgression`
+                                  (read from each occurrence's own Workout
+                                  Preview); Today unchanged. Substitutes
+                                  never inherit authored progression.
+  - Slice D — Completed workout semantics: CLOSED / tech-lead approved
+                                  (2026-10-19). HISTORICAL REALITY
+                                  WINS. Additive server-owned
+                                  `PlanSessionSummaryV1.completedWorkoutSessionId`
+                                  and
+                                  `WorkoutPreviewV1.completedWorkoutSessionId`
+                                  — ONLY the caller's CANONICAL COMPLETED
+                                  session (occurrence claim; SECONDARY /
+                                  unclaimed / foreign never). Preview
+                                  `canStart = no canonical session`.
+                                  Plan COMPLETED row -> `/progress/workouts/
+                                  :id`; Preview of a completed occurrence is
+                                  read only ("Workout completed" + View
+                                  workout); Today `completed-today` hero
+                                  from `PlanOverviewV1.completedToday` —
+                                  COMPLETED-TODAY IS SERVER-AUTHORITATIVE
+                                  AND INDEPENDENT OF THE DISPLAYED PLAN
+                                  CYCLE (closure fix: a previous-cycle /
+                                  rolled-forward occurrence finished today
+                                  counts; several -> most recently
+                                  completed; training time zone, never
+                                  device date) with no Start/Resume/
+                                  Adjust/Equipment/missed card. The sync
+                                  START command still accepts a deliberate
+                                  SECONDARY session (domain capability kept,
+                                  no UI). No migration.
+  - Slice E — Human acceptance + final E2E: CLOSED / human acceptance PASS
+                                  (2026-10-19). Real app on a dedicated new
+                                  AVD `Vostivo_Progress_E2E` (dev build,
+                                  Metro) + real API + real worker +
+                                  `vostivo_manual`, fresh athlete
+                                  `progress-e2e-1792424330` (GUIDED,
+                                  Europe/Prague, EQUIPMENT_ADAPTATION_FIXTURE +
+                                  ATHLETE_JOURNEY_FIXTURE, bench-press +2.5 kg
+                                  capability). UI Start -> Bench 60 kg
+                                  x 12/12/12 + OHP 30 x 10/10 -> Finish (7
+                                  commands APPLIED, 1 session, 1 claim, no
+                                  duplicates) -> worker INCREASE_LOAD -> SYSTEM
+                                  APPLIED 60 -> 62.5 -> Today "Workout
+                                  complete" + Next -> Plan row Completed ->
+                                  history; deep-linked completed Preview has
+                                  no Start -> Progress 60kg -> 62.5kg ->
+                                  View next workout (exact server id) ->
+                                  read-only "62.5kg · Up from 60kg". START
+                                  target proven via snapshot == Preview
+                                  prescription + PROGRESS-C-001 (no clock
+                                  change). Evidence: spec §12. Follow-ups
+                                  (non-blocking): Archivo, Plan/Today double
+                                  fetch per focus + Plan preview-per-session
+                                  (pre-beta perf), device-local DB not
+                                  identity-scoped (sign-in phase).
+
 Exercise & Equipment Reference Catalog V1: CLOSED. Code-owned reference data
                                   in `packages/domain/src/exercise-catalog/`
                                   (`exercise-equipment-catalog/v1`). EXERCISE

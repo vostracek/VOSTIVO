@@ -16,13 +16,13 @@ import {
 import { adjustPreview, adjustPreviewOhpOnly, WORKOUT_ID } from "./testing/fixtures";
 
 function todaySession(overrides: Partial<PlanSessionSummaryV1> = {}): PlanSessionSummaryV1 {
-  return { plannedWorkoutId: WORKOUT_ID, name: "Upper Body A", focus: "Push emphasis", order: 1, scheduledDate: "2026-10-05", authoredScheduledDate: "2026-10-05", scheduleSource: "AUTHORED", estimatedDurationMinutes: 60, displayStatus: "TODAY", hasActiveSession: false, ...overrides };
+  return { plannedWorkoutId: WORKOUT_ID, name: "Upper Body A", focus: "Push emphasis", order: 1, scheduledDate: "2026-10-05", authoredScheduledDate: "2026-10-05", scheduleSource: "AUTHORED", estimatedDurationMinutes: 60, displayStatus: "TODAY", hasActiveSession: false, hasAppliedProgression: false, ...overrides };
 }
 
 function hero(hasActiveSessionAnywhere: boolean, session = todaySession()) {
   return deriveTodayHeroState({
     hasActiveSessionAnywhere,
-    overview: { status: "ready", overview: { currentBlock: { trainingBlockId: "b", name: "Block", goal: "Hypertrophy", currentCycleOrder: 1, cycleCount: 4, daysPerWeek: 3 }, sessions: [session], weeklyFocus: [], schedule: { state: "IN_CURRENT_BLOCK", displayedCycle: "CURRENT" } } },
+    overview: { status: "ready", overview: { currentBlock: { trainingBlockId: "b", name: "Block", goal: "Hypertrophy", currentCycleOrder: 1, cycleCount: 4, daysPerWeek: 3 }, sessions: [session], weeklyFocus: [], schedule: { state: "IN_CURRENT_BLOCK", displayedCycle: "CURRENT" }, athleteLocalDate: null } },
   });
 }
 

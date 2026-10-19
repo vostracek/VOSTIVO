@@ -14,6 +14,7 @@ import { FetchEquipmentApiClient } from "../equipment/equipment-api-client";
 import type { EquipmentFlowPorts } from "../equipment/equipment-controller";
 import { FetchMeApiClient } from "../profile/me-api-client";
 import { TrainingTimeZoneBootstrapper, readDeviceTimeZone } from "../profile/training-time-zone-bootstrap";
+import { FetchProgressApiClient, type ProgressApiClient } from "../progress/progress-api-client";
 import { FetchPlanApiClient } from "./plan-api-client";
 import { PlanApplicationService } from "./plan-application-service";
 
@@ -41,6 +42,7 @@ let cachedAvailableTimeFlowPorts: AvailableTimeFlowPorts | undefined;
 let cachedTrainingTimeZoneBootstrapper: TrainingTimeZoneBootstrapper | undefined;
 let cachedMissedWorkoutFlowPorts: MissedWorkoutFlowPorts | undefined;
 let cachedEquipmentFlowPorts: EquipmentFlowPorts | undefined;
+let cachedProgressApiClient: ProgressApiClient | undefined;
 
 export function getWorkoutApplicationService(): WorkoutApplicationService {
   cachedWorkoutApplicationService ??= buildWorkoutApplicationService();
@@ -154,6 +156,12 @@ export function getProgressionApiClient(): ProgressionApiClient {
 export function getGuidedLoadingSetupApiClient(): GuidedLoadingSetupApiClient {
   cachedGuidedLoadingSetupApiClient ??= new FetchGuidedLoadingSetupApiClient(getPlanApiBaseUrl(), createPlanAuthTokenProvider());
   return cachedGuidedLoadingSetupApiClient;
+}
+
+/** Progress & Feedback V1 Slice B — read-only Progress reads (no second collaborator, so exposed directly like the progression client). */
+export function getProgressApiClient(): ProgressApiClient {
+  cachedProgressApiClient ??= new FetchProgressApiClient(getPlanApiBaseUrl(), createPlanAuthTokenProvider());
+  return cachedProgressApiClient;
 }
 
 function buildWorkoutApplicationService(): WorkoutApplicationService {

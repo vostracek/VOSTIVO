@@ -30,7 +30,7 @@ const ACTIVE_IDENTITY: ResolvedIdentity = {
   unitSystem: "METRIC",
 };
 
-const EMPTY_OVERVIEW: PlanOverviewV1 = { currentBlock: null, sessions: [], weeklyFocus: [], schedule: { state: "NO_PLAN", displayedCycle: null } };
+const EMPTY_OVERVIEW: PlanOverviewV1 = { currentBlock: null, sessions: [], weeklyFocus: [], schedule: { state: "NO_PLAN", displayedCycle: null }, athleteLocalDate: null };
 
 class FakeVerifier implements AuthTokenVerifier {
   verify(bearerToken: string) {

@@ -7,3 +7,4 @@ export * from "./progression-application.js";
 export * from "./available-time-preview.js";
 export * from "./missed-workout-preview.js";
 export * from "./equipment-adaptation-preview.js";
+export * from "./progress.js";

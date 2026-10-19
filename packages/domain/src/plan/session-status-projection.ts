@@ -8,13 +8,11 @@ import type { WorkoutSessionStatus } from "../workout/workout-session.js";
  * model for a scheduled day with nothing planned (see
  * docs/architecture/PLAN-PRESCRIPTION.md).
  *
- * Honesty note: Workout Data Integrity has not yet implemented a
- * "finish workout" operation — every session it creates stays `ACTIVE`
- * forever (see `workout-session.ts`). No code path in this repo currently
- * produces a `WorkoutSession` with `status: "COMPLETED"`, so `COMPLETED`
- * is unreachable in practice today. This projection still handles it
- * correctly (tested directly against a constructed `COMPLETED` session)
- * so it needs no changes once a finish-workout operation exists.
+ * `matchingSession` is the occurrence's CANONICAL session (Planned Workout
+ * Occurrence Authority claim) — a SECONDARY session never drives this
+ * status. A FINISHed canonical session (full or partial) is `COMPLETED`:
+ * HISTORICAL REALITY WINS over the planned date (Progress & Feedback V1
+ * Slice D — the row then opens history, never an ordinary Start).
  */
 export const PLAN_SESSION_DISPLAY_STATUSES = [
   "COMPLETED",

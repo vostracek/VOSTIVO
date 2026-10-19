@@ -86,7 +86,8 @@ export async function findCanonicalOccurrenceSessions(
       status: workoutSessions.status,
     })
     .from(plannedWorkoutOccurrenceClaims)
-    .innerJoin(workoutSessions, eq(workoutSessions.id, plannedWorkoutOccurrenceClaims.canonicalWorkoutSessionId))
+    // The canonical session must be the claimant's own (defence in depth: a claim never points elsewhere).
+    .innerJoin(workoutSessions, and(eq(workoutSessions.id, plannedWorkoutOccurrenceClaims.canonicalWorkoutSessionId), eq(workoutSessions.userId, userId)))
     .where(and(eq(plannedWorkoutOccurrenceClaims.userId, userId), inArray(plannedWorkoutOccurrenceClaims.plannedWorkoutId, [...plannedWorkoutIds])));
   for (const row of rows) result.set(row.plannedWorkoutId, row);
   return result;
