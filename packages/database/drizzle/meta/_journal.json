@@ -148,6 +148,20 @@
       "when": 1791665194838,
       "tag": "0020_colossal_mister_fear",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792439663420,
+      "tag": "0021_bizarre_the_hand",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792440521800,
+      "tag": "0022_sticky_miss_america",
+      "breakpoints": true
     }
   ]
 }

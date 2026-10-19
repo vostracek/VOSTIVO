@@ -1,4 +1,4 @@
-import { check, foreignKey, index, integer, jsonb, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { check, foreignKey, index, integer, jsonb, primaryKey, text, timestamp, unique, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { appSchema, users } from "./identity.js";
 import { loadingCapabilities } from "./loading-capability.js";
@@ -343,6 +343,10 @@ export const progressionApplications = appSchema.table(
       foreignColumns: [progressionDecisions.id, progressionDecisions.userId],
       name: "progression_applications_decision_owner_fkey",
     }),
+    // Auth & Local Athlete Boundary V1 Slice A closure — the target of
+    // `progression_application_commands`' owner-integrity composite FK
+    // (`id` alone is already unique, so this can never reject a row).
+    unique("progression_applications_id_user_id_unique").on(table.id, table.userId),
     // Slice C (task §4) — THE central correctness constraint of numeric
     // Apply: at most one CURRENT `APPLIED` application may exist for a
     // given (user_id, program_version_id, training_block_id,
@@ -394,10 +398,18 @@ export const progressionApplications = appSchema.table(
 
 /**
  * Domain-specific command receipt (task §20) — NOT a generic command
- * framework; `command_id` is the primary key, so a retried command can
- * never be processed twice regardless of application-layer bugs or
- * concurrent requests, the identical pattern already proven by
- * `workout_command_receipts` (`workout.ts`).
+ * framework. Idempotency is OWNER-SCOPED (Auth & Local Athlete Boundary V1
+ * Slice A closure): the primary key is `(owner_user_id, command_id)`, so a
+ * retried command can never be processed twice for its owner regardless of
+ * application-layer bugs or concurrent requests, while another athlete
+ * reusing the same `commandId` can never replay, block or conflict with it
+ * — the same rule as `workout_command_receipts` (`workout.ts`).
+ * `owner_user_id` is the APPLICATION's owner, never a caller-supplied
+ * value: DB-enforced by the composite FK `(application_id, owner_user_id)`
+ * -> `progression_applications(id, user_id)`, and for `ATHLETE` rows the
+ * actor must be that owner (CHECK — an athlete receipt is only ever written
+ * after the BOLA ownership load succeeded). `SYSTEM` commands
+ * (server-generated `systemCommandId`) live in the owner's namespace too.
  *
  * **`user_id` (Slice D, task §13): the ACTOR's user id, nullable** — kept
  * physically named `user_id` (task §13's own explicit permission: "if
@@ -414,7 +426,9 @@ export const progressionApplications = appSchema.table(
 export const progressionApplicationCommands = appSchema.table(
   "progression_application_commands",
   {
-    commandId: uuid("command_id").primaryKey(),
+    commandId: uuid("command_id").notNull(),
+    /** The application's canonical owner — the idempotency namespace (see the table doc comment). */
+    ownerUserId: uuid("owner_user_id").notNull(),
     applicationId: uuid("application_id")
       .notNull()
       .references(() => progressionApplications.id),
@@ -429,6 +443,16 @@ export const progressionApplicationCommands = appSchema.table(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    primaryKey({ name: "progression_application_commands_pkey", columns: [table.ownerUserId, table.commandId] }),
+    foreignKey({
+      columns: [table.applicationId, table.ownerUserId],
+      foreignColumns: [progressionApplications.id, progressionApplications.userId],
+      name: "progression_application_commands_application_owner_fkey",
+    }),
+    check(
+      "progression_application_commands_athlete_actor_is_owner",
+      sql`${table.actorType} <> 'ATHLETE' OR ${table.userId} = ${table.ownerUserId}`,
+    ),
     index("progression_application_commands_application_id_idx").on(table.applicationId),
     check(
       "progression_application_commands_rejection_reason_consistency",

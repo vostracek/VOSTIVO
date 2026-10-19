@@ -25,7 +25,7 @@ import { createEntityId } from "@vostivo/domain";
 import { getOrCreateDefaultGymProfileForAthlete } from "./gym-profile.js";
 import { bindExerciseToCapability, createLoadingCapability, updateLoadingCapabilityPayload } from "./loading-capability-write.js";
 import { ensureApplicationForDecision, keepOriginal } from "./progression-application.js";
-import { applyProgression, resolveApplicationProposal } from "./progression-application-apply.js";
+import { applyProgression, applySystemProgression, resolveApplicationProposal } from "./progression-application-apply.js";
 import { listPendingProgressionApplications } from "./progression-review.js";
 
 /**
@@ -196,10 +196,8 @@ describe("Progression Application V1 — Slice C numeric Apply (real Postgres)",
   afterEach(async () => {
     if (userIds.length === 0) return;
 
-    const commandRows = await db.select({ commandId: progressionApplicationCommands.commandId }).from(progressionApplicationCommands).where(inArray(progressionApplicationCommands.userId, userIds));
-    if (commandRows.length > 0) {
-      await db.delete(progressionApplicationCommands).where(inArray(progressionApplicationCommands.commandId, commandRows.map((r) => r.commandId)));
-    }
+    // Owner-scoped (Slice A closure): every receipt in these users' namespaces, including SYSTEM rows (actor user_id NULL).
+    await db.delete(progressionApplicationCommands).where(inArray(progressionApplicationCommands.ownerUserId, userIds));
     await db.delete(progressionApplications).where(inArray(progressionApplications.userId, userIds));
     await db.delete(progressionDecisions).where(inArray(progressionDecisions.userId, userIds));
 
@@ -901,5 +899,130 @@ describe("Progression Application V1 — Slice C numeric Apply (real Postgres)",
 
     const [sessionRow] = await db.select().from(workoutSessions).where(eq(workoutSessions.id, startedSessionId));
     expect(sessionRow?.prescriptionSnapshot).toEqual(originalSnapshot); // byte-identical, forever
+  });
+
+  // ---------------------------------------------------------------------------
+  // Auth & Local Athlete Boundary V1 Slice A closure — OWNER-SCOPED progression
+  // command idempotency (AUTH-RECEIPT-001..005 applied to
+  // progression_application_commands). The pre-fix behavior these guard
+  // against: a global command_id key let athlete B's receipt for X answer
+  // athlete A's later X with COMMAND_CONFLICT.
+
+  async function pendingApplicationFor(athlete: { readonly userId: string; readonly athleteProfileId: string }): Promise<string> {
+    const plan = await seedProgram(athlete.athleteProfileId, { loadAmountMilli: 100000 });
+    await setupFixedIncrementCapability(athlete.athleteProfileId, plan.exerciseRef, 2500);
+    const decisionId = await createDecision({ userId: athlete.userId, exerciseRef: plan.exerciseRef, sourcePrescriptionExerciseId: plan.exerciseId });
+    return ensureAndGetId(athlete.userId, decisionId);
+  }
+
+  function receiptsFor(commandId: string) {
+    return db.select().from(progressionApplicationCommands).where(eq(progressionApplicationCommands.commandId, commandId));
+  }
+
+  it("PROG-RCPT-001/002/003: the same commandId X used by A (Apply) and B (Apply) is two independent commands; each replay returns only its own owner's result", async () => {
+    const a = await createAthlete();
+    const b = await createAthlete();
+    const appA = await pendingApplicationFor(a);
+    const appB = await pendingApplicationFor(b);
+    const x = createEntityId();
+
+    const aFirst = await applyProgression(db, { userId: a.userId }, { applicationId: appA, commandId: x });
+    const bFirst = await applyProgression(db, { userId: b.userId }, { applicationId: appB, commandId: x });
+    expect(aFirst.status).toBe("APPLIED");
+    expect(bFirst.status).toBe("APPLIED"); // pre-fix: COMMAND_CONFLICT (A's receipt for X pointed at appA)
+
+    const aReplay = await applyProgression(db, { userId: a.userId }, { applicationId: appA, commandId: x });
+    const bReplay = await applyProgression(db, { userId: b.userId }, { applicationId: appB, commandId: x });
+    expect(aReplay).toEqual(aFirst);
+    expect(bReplay).toEqual(bFirst);
+    if (aReplay.status !== "APPLIED" || bReplay.status !== "APPLIED") throw new Error("expected APPLIED");
+    expect(aReplay.application.id).toBe(appA);
+    expect(bReplay.application.id).toBe(appB);
+
+    const rows = await receiptsFor(x);
+    expect(rows.map((row) => [row.ownerUserId, row.applicationId, row.userId, row.outcome]).sort()).toEqual(
+      [[a.userId, appA, a.userId, "APPLIED"], [b.userId, appB, b.userId, "APPLIED"]].sort(),
+    );
+  });
+
+  it("PROG-RCPT-004/005: B cannot block A — B's KEEP_ORIGINAL with X first, then A's Apply and KEEP_ORIGINAL-style reuse of X behave exactly as if B never existed; A never receives B's outcome", async () => {
+    const a = await createAthlete();
+    const b = await createAthlete();
+    const appA = await pendingApplicationFor(a);
+    const appB = await pendingApplicationFor(b);
+    const x = createEntityId();
+
+    expect((await keepOriginal(db, { userId: b.userId }, { applicationId: appB, commandId: x })).status).toBe("KEPT_ORIGINAL");
+
+    const aApply = await applyProgression(db, { userId: a.userId }, { applicationId: appA, commandId: x });
+    expect(aApply.status).toBe("APPLIED"); // never B's KEPT_ORIGINAL, never COMMAND_CONFLICT
+    const [aRow] = await db.select().from(progressionApplications).where(eq(progressionApplications.id, appA));
+    const [bRow] = await db.select().from(progressionApplications).where(eq(progressionApplications.id, appB));
+    expect(aRow?.status).toBe("APPLIED");
+    expect(bRow?.status).toBe("KEPT_ORIGINAL");
+
+    // Within A's own namespace X is now A's APPLY — same-owner reuse for another action still conflicts (unchanged semantics).
+    expect((await keepOriginal(db, { userId: a.userId }, { applicationId: appA, commandId: x })).status).toBe("COMMAND_CONFLICT");
+  });
+
+  it("PROG-RCPT-004b: a foreign attempt on A's application with X leaves no receipt and never changes A's later result for X", async () => {
+    const a = await createAthlete();
+    const b = await createAthlete();
+    const appA = await pendingApplicationFor(a);
+    const x = createEntityId();
+
+    expect((await applyProgression(db, { userId: b.userId }, { applicationId: appA, commandId: x })).status).toBe("NOT_FOUND");
+    expect((await keepOriginal(db, { userId: b.userId }, { applicationId: appA, commandId: x })).status).toBe("NOT_FOUND");
+    expect(await receiptsFor(x)).toEqual([]);
+
+    expect((await applyProgression(db, { userId: a.userId }, { applicationId: appA, commandId: x })).status).toBe("APPLIED");
+    expect(await receiptsFor(x)).toEqual([expect.objectContaining({ ownerUserId: a.userId, userId: a.userId, actorType: "ATHLETE", action: "APPLY", outcome: "APPLIED" })]);
+  });
+
+  it("PROG-RCPT-006/007: same-owner concurrent identical Apply (same commandId) and concurrent SYSTEM dispatch replays -> exactly one effective application, one receipt per command", async () => {
+    const a = await createAthlete();
+    const appA = await pendingApplicationFor(a);
+    const x = createEntityId();
+
+    const results = await Promise.all(Array.from({ length: 6 }, () => applyProgression(createDatabaseClient(DATABASE_URL), { userId: a.userId }, { applicationId: appA, commandId: x })));
+    expect(results.every((result) => result.status === "APPLIED")).toBe(true);
+    expect(await receiptsFor(x)).toHaveLength(1);
+    const [row] = await db.select().from(progressionApplications).where(eq(progressionApplications.id, appA));
+    expect(row).toMatchObject({ status: "APPLIED", appliedLoad: { kind: "EXTERNAL_WEIGHT", amountMilli: 102500, unit: "KG", basis: "TOTAL" } });
+
+    // SYSTEM (worker) path, GUIDED: duplicate dispatch of ONE systemCommandId converges — never a second increment.
+    const g = await createAthlete();
+    const appG = await pendingApplicationFor(g);
+    const systemCommandId = createEntityId();
+    const systemResults = await Promise.all(Array.from({ length: 4 }, () => applySystemProgression(createDatabaseClient(DATABASE_URL), { applicationId: appG, systemCommandId })));
+    expect(systemResults.every((result) => result.status === "APPLIED")).toBe(true);
+    expect(await receiptsFor(systemCommandId)).toEqual([expect.objectContaining({ ownerUserId: g.userId, userId: null, actorType: "SYSTEM", outcome: "APPLIED" })]);
+    const [systemRow] = await db.select().from(progressionApplications).where(eq(progressionApplications.id, appG));
+    expect(systemRow).toMatchObject({ status: "APPLIED", decidedByActorType: "SYSTEM", decidedBy: null, appliedLoad: { amountMilli: 102500 } });
+  });
+
+  it("PROG-RCPT-008: SYSTEM receipts live in the application owner's namespace — the same systemCommandId for two athletes' applications never conflicts", async () => {
+    const a = await createAthlete();
+    const b = await createAthlete();
+    const appA = await pendingApplicationFor(a);
+    const appB = await pendingApplicationFor(b);
+    const shared = createEntityId();
+
+    expect((await applySystemProgression(db, { applicationId: appA, systemCommandId: shared })).status).toBe("APPLIED");
+    expect((await applySystemProgression(db, { applicationId: appB, systemCommandId: shared })).status).toBe("APPLIED"); // pre-fix: COMMAND_CONFLICT
+    expect((await receiptsFor(shared)).map((row) => row.ownerUserId).sort()).toEqual([a.userId, b.userId].sort());
+  });
+
+  it("PROG-RCPT-009: the DB itself refuses a receipt whose owner is not the application's owner, or an ATHLETE receipt whose actor is not the owner", async () => {
+    const a = await createAthlete();
+    const b = await createAthlete();
+    const appA = await pendingApplicationFor(a);
+
+    await expect(
+      db.insert(progressionApplicationCommands).values({ commandId: createEntityId(), ownerUserId: b.userId, applicationId: appA, userId: null, actorType: "SYSTEM", action: "APPLY", outcome: "APPLIED" }),
+    ).rejects.toThrow(); // composite FK (application_id, owner_user_id)
+    await expect(
+      db.insert(progressionApplicationCommands).values({ commandId: createEntityId(), ownerUserId: a.userId, applicationId: appA, userId: b.userId, actorType: "ATHLETE", action: "APPLY", outcome: "APPLIED" }),
+    ).rejects.toThrow(); // CHECK athlete actor is owner
   });
 });

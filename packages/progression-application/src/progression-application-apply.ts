@@ -255,6 +255,13 @@ export async function resolveApplicationProposal(
 }
 
 /** Task §13 — the truthful actor fields for a command receipt: `ATHLETE` carries a real `userId`, `SYSTEM` carries `null` (no real `User` row exists for it — never the application owner's id relabeled). */
+/** ATHLETE: the authenticated user (a foreign application is NOT_FOUND anyway). SYSTEM: the application's own owner; `null` when it does not exist. */
+async function receiptOwnerFor(db: Database, actor: ApplyCoreActor, applicationId: string): Promise<string | null> {
+  if (actor.kind === "ATHLETE") return actor.userId;
+  const [row] = await db.select({ userId: progressionApplications.userId }).from(progressionApplications).where(eq(progressionApplications.id, applicationId)).limit(1);
+  return row?.userId ?? null;
+}
+
 function commandActorFields(actor: ApplyCoreActor): { readonly userId: string | null; readonly actorType: "ATHLETE" | "SYSTEM" } {
   return actor.kind === "ATHLETE" ? { userId: actor.userId, actorType: "ATHLETE" } : { userId: null, actorType: "SYSTEM" };
 }
@@ -276,13 +283,14 @@ async function rejectApply(
     .insert(progressionApplicationCommands)
     .values({
       commandId: input.commandId,
+      ownerUserId: app.userId,
       applicationId: app.id,
       ...commandActorFields(actor),
       action: "APPLY",
       outcome: "REJECTED",
       rejectionReason: toPersistableRejectionReason(reason),
     })
-    .onConflictDoNothing({ target: progressionApplicationCommands.commandId })
+    .onConflictDoNothing({ target: [progressionApplicationCommands.ownerUserId, progressionApplicationCommands.commandId] })
     .returning({ commandId: progressionApplicationCommands.commandId });
 
   if (receiptInsert.length === 0) {
@@ -304,13 +312,14 @@ async function persistAlreadyDecided(
     .insert(progressionApplicationCommands)
     .values({
       commandId: input.commandId,
+      ownerUserId: app.userId,
       applicationId: app.id,
       ...commandActorFields(actor),
       action: "APPLY",
       outcome: outcome.status === "APPLIED" ? "APPLIED" : "REJECTED",
       rejectionReason: outcome.status === "NOT_APPLIED" ? toPersistableRejectionReason(outcome.reason) : null,
     })
-    .onConflictDoNothing({ target: progressionApplicationCommands.commandId })
+    .onConflictDoNothing({ target: [progressionApplicationCommands.ownerUserId, progressionApplicationCommands.commandId] })
     .returning({ commandId: progressionApplicationCommands.commandId });
 
   if (receiptInsert.length === 0) {
@@ -389,7 +398,12 @@ async function transitionToRevalidationVerdict(
  *    proof)
  */
 async function applyProgressionCore(db: Database, actor: ApplyCoreActor, input: ApplyInput): Promise<ApplyOutcome> {
-  const existingReceipt = await findCommandReceipt(db, input.commandId);
+  // Owner-scoped idempotency (Auth & Local Athlete Boundary V1 Slice A
+  // closure): the receipt namespace is the authenticated athlete, or — for
+  // SYSTEM — the application's canonical owner read from the DB.
+  const ownerUserId = await receiptOwnerFor(db, actor, input.applicationId);
+  if (ownerUserId === null) return { status: "NOT_FOUND" };
+  const existingReceipt = await findCommandReceipt(db, ownerUserId, input.commandId);
   if (existingReceipt !== undefined) {
     if (existingReceipt.applicationId !== input.applicationId || existingReceipt.action !== "APPLY") {
       return { status: "COMMAND_CONFLICT" };
@@ -413,7 +427,7 @@ async function applyProgressionCore(db: Database, actor: ApplyCoreActor, input: 
       if (app === null) return { status: "NOT_FOUND" };
 
       // Step 5.
-      const receiptAfterLock = await findCommandReceipt(tx, input.commandId);
+      const receiptAfterLock = await findCommandReceipt(tx, ownerUserId, input.commandId);
       if (receiptAfterLock !== undefined) {
         if (receiptAfterLock.applicationId !== input.applicationId || receiptAfterLock.action !== "APPLY") {
           return { status: "COMMAND_CONFLICT" };
@@ -551,8 +565,8 @@ async function applyProgressionCore(db: Database, actor: ApplyCoreActor, input: 
       // Step 22.
       const receiptInsert = await tx
         .insert(progressionApplicationCommands)
-        .values({ commandId: input.commandId, applicationId: app.id, ...commandActorFields(actor), action: "APPLY", outcome: "APPLIED" })
-        .onConflictDoNothing({ target: progressionApplicationCommands.commandId })
+        .values({ commandId: input.commandId, ownerUserId: app.userId, applicationId: app.id, ...commandActorFields(actor), action: "APPLY", outcome: "APPLIED" })
+        .onConflictDoNothing({ target: [progressionApplicationCommands.ownerUserId, progressionApplicationCommands.commandId] })
         .returning({ commandId: progressionApplicationCommands.commandId });
 
       if (receiptInsert.length === 0) {
@@ -563,7 +577,7 @@ async function applyProgressionCore(db: Database, actor: ApplyCoreActor, input: 
     });
   } catch (error) {
     if (error instanceof ApplyCommandRaceLoss) {
-      const winnerReceipt = await findCommandReceipt(db, input.commandId);
+      const winnerReceipt = await findCommandReceipt(db, ownerUserId, input.commandId);
       if (winnerReceipt !== undefined) {
         const app = await loadApplicationForActor(db, actor, input.applicationId);
         if (app === null) return { status: "NOT_FOUND" };
@@ -582,7 +596,7 @@ async function applyProgressionCore(db: Database, actor: ApplyCoreActor, input: 
         return await db.transaction((tx) => persistAlreadyDecided(tx, actor, input, app));
       } catch (nestedError) {
         if (nestedError instanceof ApplyCommandRaceLoss) {
-          const winnerReceipt = await findCommandReceipt(db, input.commandId);
+          const winnerReceipt = await findCommandReceipt(db, ownerUserId, input.commandId);
           if (winnerReceipt !== undefined) {
             const refreshed = await loadApplicationForActor(db, actor, input.applicationId);
             if (refreshed === null) return { status: "NOT_FOUND" };

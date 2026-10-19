@@ -1,4 +1,4 @@
-import { bigserial, index, integer, jsonb, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigserial, index, integer, jsonb, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { appSchema, users } from "./identity.js";
 
@@ -186,11 +186,17 @@ export const workoutCommandOutcomeEnum = appSchema.enum(
 );
 
 /**
- * Durable, DB-enforced idempotency (spec section 20) — `command_id` is the
- * primary key, so a retried command can never be processed twice
- * regardless of application-layer bugs or concurrent requests. `user_id`
- * is recorded so a receipt itself can never be read/replayed across
- * athletes.
+ * Durable, DB-enforced idempotency (spec section 20), OWNER-SCOPED (Auth &
+ * Local Athlete Boundary V1 Slice A): the primary key is `(user_id,
+ * command_id)`, so a retried command can never be processed twice for its
+ * owner regardless of application-layer bugs or concurrent requests, while
+ * two users' commands never share an idempotency namespace — a receipt
+ * written under athlete B (even a rejected attempt carrying athlete A's
+ * `commandId`) can never be returned to, block, or overwrite athlete A.
+ * `user_id` is always the AUTHENTICATED ACTOR (never a payload value); it
+ * has been NOT NULL and actor-populated since the table was created, so
+ * every pre-existing row already sits in its submitter's namespace.
+ * Lookups must always filter by both columns.
  *
  * `workout_session_id`/`session_seq` (Active Workout Finish Causal
  * Boundary Fix) are populated only for `COMPLETE_SET_V1`/`REOPEN_SET_V1`
@@ -207,7 +213,7 @@ export const workoutCommandOutcomeEnum = appSchema.enum(
 export const workoutCommandReceipts = appSchema.table(
   "workout_command_receipts",
   {
-    commandId: uuid("command_id").primaryKey(),
+    commandId: uuid("command_id").notNull(),
     commandType: workoutCommandTypeEnum("command_type").notNull(),
     schemaVersion: integer("schema_version").notNull(),
     userId: uuid("user_id")
@@ -219,6 +225,7 @@ export const workoutCommandReceipts = appSchema.table(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    primaryKey({ name: "workout_command_receipts_pkey", columns: [table.userId, table.commandId] }),
     uniqueIndex("workout_command_receipts_session_seq_unique")
       .on(table.workoutSessionId, table.sessionSeq)
       .where(sql`${table.sessionSeq} IS NOT NULL`),

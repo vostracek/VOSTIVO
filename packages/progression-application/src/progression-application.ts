@@ -507,8 +507,16 @@ function toKeepOriginalOutcome(app: ProgressionApplicationRecord): KeepOriginalO
   return { status: "NOT_KEPT", reason: app.status, application: app };
 }
 
+/**
+ * The ONE progression command receipt lookup (Auth & Local Athlete Boundary
+ * V1 Slice A closure): always keyed by the owner namespace + `commandId` —
+ * another athlete's receipt is never returned, never conflicts, never blocks.
+ * `ownerUserId` is the authenticated athlete (ATHLETE) or the application's
+ * canonical owner read from the DB (SYSTEM), never a client value.
+ */
 export async function findCommandReceipt(
   db: Database,
+  ownerUserId: string,
   commandId: string,
 ): Promise<{ readonly applicationId: string; readonly action: string; readonly outcome: string } | undefined> {
   const [row] = await db
@@ -518,7 +526,7 @@ export async function findCommandReceipt(
       outcome: progressionApplicationCommands.outcome,
     })
     .from(progressionApplicationCommands)
-    .where(eq(progressionApplicationCommands.commandId, commandId))
+    .where(and(eq(progressionApplicationCommands.ownerUserId, ownerUserId), eq(progressionApplicationCommands.commandId, commandId)))
     .limit(1);
   return row;
 }
@@ -547,7 +555,7 @@ export interface KeepOriginalInput {
  * `KEPT_ORIGINAL` again (the target state already holds), never an error.
  */
 export async function keepOriginal(db: Database, actor: ProgressionActorV1, input: KeepOriginalInput): Promise<KeepOriginalOutcome> {
-  const existingReceipt = await findCommandReceipt(db, input.commandId);
+  const existingReceipt = await findCommandReceipt(db, actor.userId, input.commandId);
   if (existingReceipt !== undefined) {
     if (existingReceipt.applicationId !== input.applicationId || existingReceipt.action !== "KEEP_ORIGINAL") {
       return { status: "COMMAND_CONFLICT" };
@@ -598,13 +606,14 @@ export async function keepOriginal(db: Database, actor: ProgressionActorV1, inpu
         .insert(progressionApplicationCommands)
         .values({
           commandId: input.commandId,
+          ownerUserId: app.userId,
           applicationId: app.id,
           userId: actor.userId,
           actorType: "ATHLETE", // KEEP_ORIGINAL is always athlete-driven — task §19/§27
           action: "KEEP_ORIGINAL",
           outcome,
         })
-        .onConflictDoNothing({ target: progressionApplicationCommands.commandId })
+        .onConflictDoNothing({ target: [progressionApplicationCommands.ownerUserId, progressionApplicationCommands.commandId] })
         .returning({ commandId: progressionApplicationCommands.commandId });
 
       if (receiptInsert.length === 0) {
@@ -615,7 +624,7 @@ export async function keepOriginal(db: Database, actor: ProgressionActorV1, inpu
     });
   } catch (error) {
     if (error instanceof KeepOriginalCommandRaceLoss) {
-      const winnerReceipt = await findCommandReceipt(db, input.commandId);
+      const winnerReceipt = await findCommandReceipt(db, actor.userId, input.commandId);
       if (winnerReceipt !== undefined) {
         const app = await loadOwnedApplication(db, actor.userId, input.applicationId);
         if (app === null) return { status: "NOT_FOUND" };

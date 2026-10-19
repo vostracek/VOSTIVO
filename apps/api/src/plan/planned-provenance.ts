@@ -24,11 +24,17 @@ import { findOwnedPlannedWorkoutSource, loadAvailableTimeExerciseRows, type Owne
  *   planned exercise/set identity at all — an unplanned workout is never
  *   silently turned into a planned one.
  *
- * Any violation is one uniform `INVALID_PLAN_PROVENANCE` (the command is
- * REJECTED with no reason detail): the answer never says whose plan an id
- * belongs to. Only string identities are inspected — the snapshot stays an
- * opaque document otherwise, exactly as before.
+ * Any violation is REJECTED with no reason detail on the wire: the answer
+ * never says whose plan an id belongs to. Internally, `FOREIGN_PLANNED_WORKOUT`
+ * (the claimed planned workout exists but belongs to someone else) is kept
+ * apart from every other `INVALID_PLAN_PROVENANCE` so the command processor
+ * can reject it statelessly (Auth & Local Athlete Boundary V1 Slice A — a
+ * foreign-ownership failure leaves no receipt). Only string identities are
+ * inspected — the snapshot stays an opaque document otherwise, exactly as
+ * before.
  */
+export type StartProvenanceError = "INVALID_PLAN_PROVENANCE" | "FOREIGN_PLANNED_WORKOUT";
+
 export type StartProvenance =
   | { readonly kind: "UNPLANNED" }
   | { readonly kind: "PLANNED"; readonly source: OwnedPlannedWorkoutSource; readonly exercises: readonly AvailableTimeExerciseRow[] };
@@ -64,7 +70,7 @@ export async function resolveStartProvenance(
   db: Database,
   userId: string,
   snapshot: WorkoutPrescriptionV1,
-): Promise<Result<StartProvenance, "INVALID_PLAN_PROVENANCE">> {
+): Promise<Result<StartProvenance, StartProvenanceError>> {
   const identities = collectIdentities(snapshot);
   const workoutId = snapshot.prescriptionId;
 
@@ -81,7 +87,7 @@ export async function resolveStartProvenance(
     }
     // Not the user's: a planned workout of someone else is never attachable.
     const [foreignWorkout] = await db.select({ id: plannedWorkouts.id }).from(plannedWorkouts).where(eq(plannedWorkouts.id, workoutId)).limit(1);
-    if (foreignWorkout !== undefined) return err("INVALID_PLAN_PROVENANCE");
+    if (foreignWorkout !== undefined) return err("FOREIGN_PLANNED_WORKOUT");
   }
 
   // UNPLANNED: no planned exercise/set identity may appear at all.

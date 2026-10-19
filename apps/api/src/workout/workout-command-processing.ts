@@ -38,6 +38,20 @@ const logger = createLogger({ serviceName: "vostivo-api-workout-commands" });
 class DuplicateCommandRaceLoss extends Error {}
 
 /**
+ * Auth & Local Athlete Boundary V1 Slice A — the command targets a server
+ * resource the actor does not own (or that does not exist for the actor):
+ * another user's session/performed set, another user's planned workout, or
+ * a session id already taken by another user. Thrown INSIDE the transaction
+ * so it rolls back completely, then reported as a generic `REJECTED`
+ * WITHOUT a receipt: a foreign-ownership attempt never leaves durable
+ * idempotency state behind. Replaying it simply re-evaluates to the same
+ * rejection. Same-owner validation failures (bad load, Finish causal gate,
+ * snapshot mismatch, equipment/Available-Time contradictions, malformed
+ * provenance) are NOT this — they keep their persisted REJECTED receipt.
+ */
+class OwnershipUnresolvedRejection extends Error {}
+
+/**
  * Signals that a DIFFERENT commandId tried to claim a (session, sessionSeq)
  * pair already recorded against another command (Active Workout Finish
  * Causal Boundary Fix, AW-ORDER-007) — caught outside the transaction so
@@ -115,7 +129,7 @@ export async function processWorkoutCommand(
   /** Server time (injectable for tests); START uses it so a client `startedAt` can never escape an applicable equipment application. */
   now: Date = new Date(),
 ): Promise<WorkoutCommandAcknowledgementV1> {
-  const existingReceipt = await findReceipt(db, command.commandId);
+  const existingReceipt = await findReceipt(db, userId, command.commandId);
   if (existingReceipt !== undefined) {
     return { commandId: command.commandId, outcome: toClientOutcome(existingReceipt, true) };
   }
@@ -140,7 +154,7 @@ export async function processWorkoutCommand(
             // never a sessionSeq claim with no session to anchor it.
             sessionSeq: mutation.sessionId !== null ? sessionSeqFor(command) : null,
           })
-          .onConflictDoNothing({ target: workoutCommandReceipts.commandId })
+          .onConflictDoNothing({ target: [workoutCommandReceipts.userId, workoutCommandReceipts.commandId] })
           .returning({ commandId: workoutCommandReceipts.commandId });
       } catch (error) {
         if (isPostgresUniqueViolation(error)) {
@@ -174,8 +188,11 @@ export async function processWorkoutCommand(
 
     return { commandId: command.commandId, outcome: toClientOutcome({ outcome }, false) };
   } catch (error) {
+    if (error instanceof OwnershipUnresolvedRejection) {
+      return { commandId: command.commandId, outcome: "REJECTED" };
+    }
     if (error instanceof DuplicateCommandRaceLoss) {
-      const winner = await findReceipt(db, command.commandId);
+      const winner = await findReceipt(db, userId, command.commandId);
       if (winner !== undefined) {
         return { commandId: command.commandId, outcome: toClientOutcome(winner, true) };
       }
@@ -235,9 +252,13 @@ async function applyStartWorkoutSession(
   // Every START's claimed Plan provenance is verified before anything is
   // written: an owned planned workout (with only its own exercise/set
   // identities) or a genuinely unplanned prescription. Foreign provenance
-  // -> REJECTED, nothing persisted (see planned-provenance.ts).
+  // -> REJECTED, nothing persisted (see planned-provenance.ts); another
+  // user's planned workout is a foreign-ownership failure (no receipt).
   const provenance = await resolveStartProvenance(tx, userId, command.prescription);
-  if (!provenance.ok) return "REJECTED";
+  if (!provenance.ok) {
+    if (provenance.error === "FOREIGN_PLANNED_WORKOUT") throw new OwnershipUnresolvedRejection();
+    return "REJECTED";
+  }
 
   // Serialize with a concurrent TODAY_ONLY equipment apply of the same
   // occurrence (the apply re-checks "not started" under the same lock).
@@ -312,14 +333,16 @@ async function applyStartWorkoutSession(
 
   // spec section 19 (WDI-SYNC-002): duplicate START is idempotent — but
   // only for the same owner (BOLA: never let a colliding id be silently
-  // claimed by a different user).
+  // claimed by a different user; a session id taken by someone else is a
+  // foreign-ownership rejection with no receipt).
   const [existing] = await tx
     .select({ userId: workoutSessions.userId })
     .from(workoutSessions)
     .where(eq(workoutSessions.id, command.workoutSessionId))
     .limit(1);
 
-  return existing !== undefined && existing.userId === userId ? "APPLIED" : "REJECTED";
+  if (existing === undefined || existing.userId !== userId) throw new OwnershipUnresolvedRejection();
+  return "APPLIED";
 }
 
 /**
@@ -349,8 +372,7 @@ async function applyCompleteSet(
     .from(workoutSessions)
     .where(eq(workoutSessions.id, command.workoutSessionId))
     .limit(1);
-  if (session === undefined || session.userId !== userId)
-    return { outcome: "REJECTED", sessionId: null, progressionTriggerSessionId: null }; // BOLA (spec 25)
+  if (session === undefined || session.userId !== userId) throw new OwnershipUnresolvedRejection(); // BOLA (spec 25)
 
   // From here on, ownership is confirmed — this command's sessionSeq is a
   // legitimate claim by its actual owner, even if rejected below for
@@ -474,8 +496,7 @@ async function applyReopenSet(
     .innerJoin(workoutSessions, eq(workoutSessions.id, performedExercises.workoutSessionId))
     .where(eq(performedSets.id, command.performedSetId))
     .limit(1);
-  if (owner === undefined || owner.userId !== userId)
-    return { outcome: "REJECTED", sessionId: null, progressionTriggerSessionId: null }; // BOLA (spec 25)
+  if (owner === undefined || owner.userId !== userId) throw new OwnershipUnresolvedRejection(); // BOLA (spec 25)
 
   // Same Finish causal-boundary gate as applyCompleteSet — see there for
   // the full reasoning.
@@ -536,7 +557,7 @@ async function applyFinishWorkoutSession(
     .from(workoutSessions)
     .where(eq(workoutSessions.id, command.workoutSessionId))
     .limit(1);
-  if (session === undefined || session.userId !== userId) return { outcome: "REJECTED", transitioned: false }; // BOLA (spec 44)
+  if (session === undefined || session.userId !== userId) throw new OwnershipUnresolvedRejection(); // BOLA (spec 44)
 
   if (session.status === "COMPLETED") {
     return { outcome: "APPLIED", transitioned: false };
@@ -579,14 +600,20 @@ function resourceIdFor(command: WorkoutCommandV1): string {
   }
 }
 
+/**
+ * The ONE receipt lookup (Auth & Local Athlete Boundary V1 Slice A):
+ * always keyed by the authenticated actor's `userId` + `commandId` — a
+ * receipt in another user's namespace is never returned, never blocks.
+ */
 async function findReceipt(
   db: Database,
+  userId: string,
   commandId: string,
 ): Promise<{ outcome: StoredOutcome } | undefined> {
   const [row] = await db
     .select({ outcome: workoutCommandReceipts.outcome })
     .from(workoutCommandReceipts)
-    .where(eq(workoutCommandReceipts.commandId, commandId))
+    .where(and(eq(workoutCommandReceipts.userId, userId), eq(workoutCommandReceipts.commandId, commandId)))
     .limit(1);
   return row;
 }

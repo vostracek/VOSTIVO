@@ -1530,6 +1530,44 @@ Progress & Feedback V1:           FULLY CLOSED (2026-10-19; scope approved
                                   (pre-beta perf), device-local DB not
                                   identity-scoped (sign-in phase).
 
+Auth & Local Athlete Boundary V1: Phase 0 COMPLETE; decisions D-1..D-9
+                                  APPROVED (2026-10-19): separate Supabase
+                                  dev/prod projects, email OTP only,
+                                  SecureStore session adapter, userId + one
+                                  encrypted SQLite DB per athlete, legacy DB
+                                  quarantine, Profile -> Account, dev-only
+                                  identity selector, server first. Spec:
+                                  docs/domain/AUTH-LOCAL-ATHLETE-BOUNDARY-V1.md.
+  - Slice A — Server Receipt Ownership Hardening: IMPLEMENTED / awaiting
+                                  tech-lead closure (2026-10-19). WORKOUT
+                                  COMMAND IDEMPOTENCY IS OWNER-SCOPED:
+                                  receipt PK (user_id, command_id)
+                                  (migration 0021; user_id was always the
+                                  actor, so no backfill/reassignment), one
+                                  lookup findReceipt(userId, commandId);
+                                  foreign-ownership rejections are stateless
+                                  (no receipt), same-owner validation
+                                  rejections still persisted. Known
+                                  limitation: literal foreign replay of an
+                                  UNPLANNED START takes the session id (Slice
+                                  B prevents client-side). Spec §24.
+                                  Closure audit (spec §25): repo-wide
+                                  idempotency inventory; the same defect
+                                  existed in progression_application_commands
+                                  (global command_id -> another athlete's X
+                                  answered A with COMMAND_CONFLICT) — fixed:
+                                  PK (owner_user_id, command_id), owner = the
+                                  application's owner (composite FK + CHECK
+                                  athlete actor = owner), migration 0022
+                                  backfilled from each row's own application.
+                                  Every other namespace is owner-scoped by key
+                                  or fingerprint, or server-only.
+  - Slice B — Local Athlete Storage + IdentityGate: not started (also the
+                                  batch ownerUserId consistency guard).
+  - Slice C — Supabase Auth + Session Lifecycle: not started.
+  - Slice D — Sign-out + Minimal Account: not started.
+  - Slice E — Human Acceptance + Final Closure: not started.
+
 Exercise & Equipment Reference Catalog V1: CLOSED. Code-owned reference data
                                   in `packages/domain/src/exercise-catalog/`
                                   (`exercise-equipment-catalog/v1`). EXERCISE
