@@ -1,3 +1,4 @@
+import { ConflictException } from "@nestjs/common";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
@@ -21,11 +22,13 @@ import {
   type Database,
 } from "@vostivo/database";
 import { createEntityId, type WorkoutPrescriptionV1 } from "@vostivo/domain";
-import type { CompleteSetCommandV1, FinishWorkoutSessionCommandV1, ReopenSetCommandV1, StartWorkoutSessionCommandV1 } from "@vostivo/contracts";
+import { SYNC_OWNER_MISMATCH, type CompleteSetCommandV1, type FinishWorkoutSessionCommandV1, type ReopenSetCommandV1, type StartWorkoutSessionCommandV1, type WorkoutCommandV1 } from "@vostivo/contracts";
 import { ensureProgressionEvaluateSessionQueues } from "@vostivo/progression-application";
 import { PlanReadService } from "../plan/plan-read.service.js";
 import { systemClock } from "../common/clock.js";
 import { processWorkoutCommand } from "./workout-command-processing.js";
+import { WorkoutSyncService } from "./workout-sync.service.js";
+import type { SyncWorkoutCommandsRequestDto } from "./dto/workout-command.dto.js";
 
 /**
  * Auth & Local Athlete Boundary V1 Slice A — WORKOUT COMMAND IDEMPOTENCY IS
@@ -307,7 +310,7 @@ describe("Auth & Local Athlete Boundary V1 Slice A — owner-scoped workout comm
     expect(await receiptOf(b.userId, x)).toEqual([expect.objectContaining({ outcome: "APPLIED" })]);
   });
 
-  it("RCPT-005b KNOWN LIMITATION (closed client-side by Slice B): the LITERAL unplanned START of A (same workoutSessionId) under B is accepted as B's — the session id, not the receipt, is then taken; A's later X is rejected statelessly and its receipt namespace stays empty", async () => {
+  it("RCPT-005b SERVER RESIDUE (closed by Slice B: per-athlete local DB + the batch ownerUserId guard below — a correct client can no longer reach this): the LITERAL unplanned START of A (same workoutSessionId) under B is accepted as B's — the session id, not the receipt, is then taken; A's later X is rejected statelessly and its receipt namespace stays empty", async () => {
     const a = await createAthlete();
     const b = await createAthlete();
     const x = startCommand();
@@ -454,6 +457,78 @@ describe("Auth & Local Athlete Boundary V1 Slice A — owner-scoped workout comm
     expect((await processWorkoutCommand(db, boss, a.userId, badLoad)).outcome).toBe("REJECTED");
     expect((await processWorkoutCommand(db, boss, a.userId, badLoad)).outcome).toBe("REJECTED");
     expect(await receiptOf(a.userId, badLoad.commandId)).toEqual([expect.objectContaining({ outcome: "REJECTED", workoutSessionId: start.workoutSessionId, sessionSeq: 1 })]);
+  });
+
+  // -------------------------------------------------------------- Slice B / batch ownerUserId guard
+
+  /** The real HTTP service path (what the controller calls with the authenticated actor's userId). */
+  function syncBatch(actorUserId: string, ownerUserId: string, commands: readonly WorkoutCommandV1[]) {
+    const request = { ownerUserId, commands } as unknown as SyncWorkoutCommandsRequestDto;
+    return new WorkoutSyncService(db, boss).syncCommands(actorUserId, request);
+  }
+
+  async function expectOwnerMismatch(promise: Promise<unknown>): Promise<void> {
+    const error: unknown = await promise.then(() => undefined, (rejection: unknown) => rejection);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getStatus()).toBe(409);
+    expect((error as ConflictException).message).toBe(SYNC_OWNER_MISMATCH);
+  }
+
+  it("SYNC-OWNER-001: actor B + ownerUserId A -> the WHOLE batch is a 409 before any command: zero receipts, sessions, performed sets, claims, cursor rows", async () => {
+    const a = await createAthlete();
+    const b = await createAthlete();
+    const seeded = await seedPlannedWorkout(a);
+    const start = await plannedStartFor(a, seeded.workoutId);
+    const complete = completeCommand(start.workoutSessionId, { prescriptionExerciseId: seeded.benchId, prescriptionSetId: seeded.benchSets[0]!, setOrder: 1, exerciseOrder: 1 });
+    const finish = finishCommand(start.workoutSessionId, { finishSeq: 1 });
+    const batch = [start, complete, finish];
+
+    await expectOwnerMismatch(syncBatch(b.userId, a.userId, batch));
+
+    const commandIds = batch.map((c) => c.commandId);
+    expect(await db.select().from(workoutCommandReceipts).where(inArray(workoutCommandReceipts.commandId, commandIds))).toEqual([]);
+    expect(await db.select().from(workoutSessions).where(eq(workoutSessions.id, start.workoutSessionId))).toEqual([]);
+    expect(await sessionsOf(a.userId)).toEqual([]);
+    expect(await sessionsOf(b.userId)).toEqual([]);
+    expect(await db.select().from(performedSets).where(eq(performedSets.id, complete.performedSetId))).toEqual([]);
+    expect(await db.select().from(plannedWorkoutOccurrenceClaims).where(eq(plannedWorkoutOccurrenceClaims.plannedWorkoutId, seeded.workoutId))).toEqual([]);
+    expect(await db.select().from(workoutChangeCursor).where(inArray(workoutChangeCursor.userId, [a.userId, b.userId]))).toEqual([]);
+  });
+
+  it("SYNC-OWNER-002: a correct-owner batch behaves exactly as before (per-command acknowledgements, one session, owned by the actor)", async () => {
+    const a = await createAthlete();
+    const start = startCommand();
+    const complete = completeCommand(start.workoutSessionId);
+
+    const response = await syncBatch(a.userId, a.userId, [start, complete]);
+
+    expect(response.acknowledgements).toEqual([
+      { commandId: start.commandId, outcome: "APPLIED" },
+      { commandId: complete.commandId, outcome: "APPLIED" },
+    ]);
+    expect((await sessionsOf(a.userId)).map((s) => s.id)).toEqual([start.workoutSessionId]);
+    // Replay is still idempotent through the guarded path.
+    expect((await syncBatch(a.userId, a.userId, [start, complete])).acknowledgements.map((ack) => ack.outcome)).toEqual(["DUPLICATE", "DUPLICATE"]);
+  });
+
+  it("RCPT-005b CLOSED (Slice B defence in depth): A's unsynced UNPLANNED START (X, session S) + set passed to B's network layer -> 409, S not created for anyone, no receipt; A then syncs the same commands -> S belongs to A, nothing lost", async () => {
+    const a = await createAthlete();
+    const b = await createAthlete();
+    const x = startCommand();
+    const set = completeCommand(x.workoutSessionId);
+
+    await expectOwnerMismatch(syncBatch(b.userId, a.userId, [x, set]));
+    expect(await db.select().from(workoutSessions).where(eq(workoutSessions.id, x.workoutSessionId))).toEqual([]);
+    expect(await receiptOf(b.userId, x.commandId)).toEqual([]);
+    expect(await receiptOf(a.userId, x.commandId)).toEqual([]);
+
+    const response = await syncBatch(a.userId, a.userId, [x, set]);
+    expect(response.acknowledgements.map((ack) => ack.outcome)).toEqual(["APPLIED", "APPLIED"]);
+    expect(await db.select().from(workoutSessions).where(eq(workoutSessions.id, x.workoutSessionId))).toEqual([expect.objectContaining({ userId: a.userId })]);
+    expect(await db.select().from(performedSets).where(eq(performedSets.id, set.performedSetId))).toHaveLength(1);
+    expect(await receiptOf(a.userId, x.commandId)).toEqual([expect.objectContaining({ outcome: "APPLIED" })]);
+    expect(await sessionsOf(b.userId)).toEqual([]);
+    expect(await db.select().from(workoutCommandReceipts).where(eq(workoutCommandReceipts.userId, b.userId))).toEqual([]);
   });
 });
 

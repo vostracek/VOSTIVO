@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { LoadingSetupContextResponseV1 } from "@vostivo/contracts";
-import { getGuidedLoadingSetupApiClient } from "../../../src/plan/plan-runtime";
+import { useAthleteRuntime } from "../../../src/identity/athlete-runtime-context";
 import { ProgressionApiRequestFailure } from "../../../src/progression/progression-api-client";
 import { mapHttpErrorToUiOutcome } from "../../../src/progression/progression-outcome-mapping";
 import { parseEnumeratedListInput, parseFixedIncrementInput } from "../../../src/progression/loading-setup-input";
@@ -40,6 +40,7 @@ type ScreenState =
   | { readonly kind: "done"; readonly copy: string };
 
 export default function LoadingSetupScreen(): React.JSX.Element {
+  const { guidedLoadingSetupApiClient } = useAthleteRuntime();
   const { applicationId } = useLocalSearchParams<{ applicationId: string }>();
   const router = useRouter();
   const [state, setState] = useState<ScreenState>({ kind: "loading" });
@@ -51,7 +52,7 @@ export default function LoadingSetupScreen(): React.JSX.Element {
 
   const fetchContext = useCallback(
     () =>
-      getGuidedLoadingSetupApiClient()
+      guidedLoadingSetupApiClient
         .getContext(applicationId)
         .then((context) => {
           if (context.status === "NOT_RECOVERABLE") {
@@ -74,7 +75,7 @@ export default function LoadingSetupScreen(): React.JSX.Element {
           }
           setState({ kind: "network-error", message: "Connect to set up loading for this exercise." });
         }),
-    [applicationId],
+    [guidedLoadingSetupApiClient, applicationId],
   );
 
   useEffect(() => {
@@ -114,7 +115,7 @@ export default function LoadingSetupScreen(): React.JSX.Element {
 
     setSubmitting(true);
     try {
-      const result = await getGuidedLoadingSetupApiClient().save(applicationId, request);
+      const result = await guidedLoadingSetupApiClient.save(applicationId, request);
       if (result.status === "APPLIED") return setState({ kind: "done", copy: "Loading setup saved. Training plan updated." });
       if (result.status === "SAVED_STILL_BLOCKED") {
         return setState({ kind: "done", copy: "Loading setup saved, but this progression still can’t be applied." });
@@ -140,7 +141,7 @@ export default function LoadingSetupScreen(): React.JSX.Element {
     } finally {
       setSubmitting(false);
     }
-  }, [state, submitting, configKind, fixedIncrementText, enumeratedListText, applicationId]);
+  }, [guidedLoadingSetupApiClient, state, submitting, configKind, fixedIncrementText, enumeratedListText, applicationId]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>

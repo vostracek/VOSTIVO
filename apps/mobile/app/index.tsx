@@ -3,17 +3,8 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { GuidedLoadingSetupAttentionV1, PendingProgressionApplicationV1, PlanSessionSummaryV1 } from "@vostivo/contracts";
-import { initializeLocalDatabase } from "../src/local-database/client";
-import {
-  getAvailableTimeFlowPorts,
-  getEquipmentFlowPorts,
-  getGuidedLoadingSetupApiClient,
-  getMissedWorkoutFlowPorts,
-  getPlanApplicationService,
-  getProgressionApiClient,
-  getWorkoutSyncCoordinator,
-  logTechnicalFailure,
-} from "../src/plan/plan-runtime";
+import { logTechnicalFailure } from "../src/plan/plan-runtime";
+import { useAthleteRuntime } from "../src/identity/athlete-runtime-context";
 import { deriveTodayHeroState, type TodayOverviewState } from "../src/plan/today-derivation";
 import { completedTodayView } from "../src/plan/today-completed-presentation";
 import { formatLoad } from "../src/workout/format-target";
@@ -64,6 +55,7 @@ type GuidedLoadingSetupState =
   | { readonly status: "ready"; readonly item: GuidedLoadingSetupAttentionV1 | null };
 
 export default function TodayScreen(): React.JSX.Element {
+  const { availableTimeFlowPorts, equipmentFlowPorts, guidedLoadingSetupApiClient, missedWorkoutFlowPorts, planApplicationService, progressionApiClient, workoutSyncCoordinator } = useAthleteRuntime();
   const router = useRouter();
   const [overviewState, setOverviewState] = useState<TodayOverviewState>({ status: "loading" });
   // Independent of the overview fetch for the same reason as Plan's own
@@ -90,8 +82,8 @@ export default function TodayScreen(): React.JSX.Element {
   // re-reads Today/Plan (the server's effective schedule) — never a start.
   const [missedState, setMissedState] = useState<MissedWorkoutFlowState>(INITIAL_MISSED_WORKOUT_STATE);
   const missedController = useMemo(
-    () => new MissedWorkoutFlowController(getMissedWorkoutFlowPorts(), { onStateChange: setMissedState, refreshToday: reload, logFailure: logTechnicalFailure }),
-    [reload],
+    () => new MissedWorkoutFlowController(missedWorkoutFlowPorts, { onStateChange: setMissedState, refreshToday: reload, logFailure: logTechnicalFailure }),
+    [missedWorkoutFlowPorts, reload],
   );
   useEffect(() => () => missedController.dispose(), [missedController]);
   const navigateToActiveWorkout = useCallback(() => {
@@ -103,8 +95,8 @@ export default function TodayScreen(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false;
 
-    initializeLocalDatabase()
-      .then(() => getPlanApplicationService().getActiveWorkoutSession())
+    planApplicationService
+      .getActiveWorkoutSession()
       .then((activeSession) => {
         if (!cancelled) setHasActiveSessionAnywhere(activeSession !== undefined);
       })
@@ -113,7 +105,7 @@ export default function TodayScreen(): React.JSX.Element {
         // fails; it never blocks the rest of the screen.
       });
 
-    getPlanApplicationService()
+    planApplicationService
       .getCurrentPlan()
       .then((overview) => {
         if (!cancelled) setOverviewState({ status: "ready", overview });
@@ -130,7 +122,7 @@ export default function TodayScreen(): React.JSX.Element {
     // and vice versa). Server already returns at most the athlete's own
     // actionable items, already ordered oldest-actionable-first — Today
     // only ever renders `applications[0]`, never re-ranks it.
-    getProgressionApiClient()
+    progressionApiClient
       .getPending()
       .then((response) => {
         if (!cancelled) setProgressionState({ status: "ready", item: response.applications[0] ?? null });
@@ -146,7 +138,7 @@ export default function TodayScreen(): React.JSX.Element {
     // by construction (GUIDED never has pending review items; only GUIDED
     // ever has a recovery attention item, task §4/§2's own server-derived
     // guarantee) — fetched independently for the same reason.
-    getGuidedLoadingSetupApiClient()
+    guidedLoadingSetupApiClient
       .getAttention()
       .then((response) => {
         if (!cancelled) setGuidedSetupState({ status: "ready", item: response.item });
@@ -162,7 +154,7 @@ export default function TodayScreen(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [reloadToken, missedController]);
+  }, [guidedLoadingSetupApiClient, planApplicationService, progressionApiClient, reloadToken, missedController]);
 
   // Re-check on every focus (returning from Active Workout, or from Plan)
   // so a session started/finished elsewhere is reflected immediately —
@@ -179,7 +171,7 @@ export default function TodayScreen(): React.JSX.Element {
     // No adjustable workout: the line is hidden by the id match below (no state reset needed).
     if (adjustableWorkoutId === null) return undefined;
     let cancelled = false;
-    getPlanApplicationService()
+    planApplicationService
       .getWorkoutPreview(adjustableWorkoutId)
       .then((preview) => {
         if (!cancelled) setEquipmentAdjusted({ plannedWorkoutId: adjustableWorkoutId, count: equipmentAdjustedCount(preview) });
@@ -188,7 +180,7 @@ export default function TodayScreen(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [adjustableWorkoutId, reloadToken]);
+  }, [planApplicationService, adjustableWorkoutId, reloadToken]);
   const equipmentLabel = equipmentAdjusted !== null && equipmentAdjusted.plannedWorkoutId === adjustableWorkoutId ? equipmentAdjustedLabel(equipmentAdjusted.count) : null;
 
   const onStartWorkout = useCallback(
@@ -196,10 +188,10 @@ export default function TodayScreen(): React.JSX.Element {
       if (session.plannedWorkoutId === null) return;
       setStartState({ status: "starting" });
       try {
-        const preview = await getPlanApplicationService().getWorkoutPreview(session.plannedWorkoutId);
-        const outcome = await getPlanApplicationService().startWorkout(preview);
+        const preview = await planApplicationService.getWorkoutPreview(session.plannedWorkoutId);
+        const outcome = await planApplicationService.startWorkout(preview);
         // START is durable locally now; syncing it is fire-and-forget.
-        if (outcome.status === "STARTED") getWorkoutSyncCoordinator().requestSync("mutation");
+        if (outcome.status === "STARTED") workoutSyncCoordinator.requestSync("mutation");
         if (outcome.status === "STARTED" || outcome.status === "ALREADY_ACTIVE") {
           // `replace`, not `push` — Today must not remain underneath
           // Active Workout on the stack (same reasoning as Workout
@@ -211,7 +203,7 @@ export default function TodayScreen(): React.JSX.Element {
         setStartState({ status: "error", message: error instanceof Error ? error.message : String(error) });
       }
     },
-    [router],
+    [planApplicationService, workoutSyncCoordinator, router],
   );
 
   const pendingProgressionItem = progressionState.status === "ready" ? progressionState.item : null;
@@ -279,7 +271,7 @@ export default function TodayScreen(): React.JSX.Element {
         <AvailableTimeSheet
           key={`${adjustTarget.plannedWorkoutId}-${adjustTarget.opening}`}
           plannedWorkoutId={adjustTarget.plannedWorkoutId}
-          ports={getAvailableTimeFlowPorts()}
+          ports={availableTimeFlowPorts}
           onDismiss={closeAdjustSheet}
           onNavigateToActiveWorkout={navigateToActiveWorkout}
           onRefreshToday={reload}
@@ -289,7 +281,7 @@ export default function TodayScreen(): React.JSX.Element {
         <EquipmentSheet
           key={`${equipmentTarget.plannedWorkoutId}-${equipmentTarget.opening}`}
           plannedWorkoutId={equipmentTarget.plannedWorkoutId}
-          ports={getEquipmentFlowPorts()}
+          ports={equipmentFlowPorts}
           onDismiss={closeEquipmentSheet}
           onRefreshToday={reload}
           logFailure={logTechnicalFailure}

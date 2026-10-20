@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { sql } from "drizzle-orm";
@@ -12,12 +12,6 @@ import { previousPerformanceRefs, previousSetsFor, resolvePrefill } from "../wor
 import type { PreviousSetPerformance } from "../workout/workout-repository";
 import { WorkoutRepository } from "../workout/workout-repository";
 import { BENCH_ID, BENCH_SETS, OHP_ID, OHP_SETS, WORKOUT_ID, adjustedWorkoutPreview, authoredWorkoutPreview } from "./testing/fixtures";
-
-// The production default opens the native encrypted expo-sqlite database (not available under vitest);
-// every repository here is given the real-SQLite test database explicitly instead.
-vi.mock("../local-database/client", () => ({
-  initializeLocalDatabase: () => Promise.reject(new Error("native expo-sqlite is not available under vitest")),
-}));
 
 /**
  * Temporary Equipment V1 Slice D — SERVER EFFECTIVE PRESCRIPTION DRIVES

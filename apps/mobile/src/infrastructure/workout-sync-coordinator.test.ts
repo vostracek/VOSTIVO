@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SyncPendingCommandsResult } from "../workout/sync-engine";
+import { RuntimeOwnerMismatchError } from "../workout/auth-token-provider";
 import { WorkoutSyncCoordinator, type SyncScheduler } from "./workout-sync-coordinator";
 
 const EMPTY: SyncPendingCommandsResult = { attempted: 0, synced: 0, retried: 0, conflicted: 0, rejected: 0 };
@@ -257,5 +258,22 @@ describe("WorkoutSyncCoordinator", () => {
       "workout sync succeeded",
       "workout sync recovered after retry",
     ]);
+  });
+
+  it("Slice B SYNC-24: an owner mismatch is not a failed retry — no backoff timer, no failure count; a later trigger simply re-checks", async () => {
+    const sync = scriptedSync(new RuntimeOwnerMismatchError(), new RuntimeOwnerMismatchError(), SYNCED);
+    const coordinator = new WorkoutSyncCoordinator(sync, { scheduler: fakeTimerScheduler });
+
+    coordinator.requestSync("launch");
+    await flush();
+    expect(coordinator.hasScheduledRetry).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(sync).toHaveBeenCalledTimes(1); // nothing polls on its own
+
+    coordinator.requestSync("foreground");
+    await flush();
+    expect(sync).toHaveBeenCalledTimes(2);
+    expect(coordinator.hasScheduledRetry).toBe(false);
   });
 });

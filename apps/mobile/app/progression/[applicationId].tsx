@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { ProgressionApplicationProposalResponseV1 } from "@vostivo/contracts";
 import { createEntityId } from "@vostivo/domain";
-import { getProgressionApiClient } from "../../src/plan/plan-runtime";
+import { useAthleteRuntime } from "../../src/identity/athlete-runtime-context";
 import { ProgressionApiRequestFailure } from "../../src/progression/progression-api-client";
 import { mapCommandResponseToUiOutcome, mapHttpErrorToUiOutcome } from "../../src/progression/progression-outcome-mapping";
 import { formatLoad } from "../../src/workout/format-target";
@@ -43,6 +43,7 @@ type ReviewState =
   | { readonly kind: "done"; readonly outcome: "applied" | "kept-original" };
 
 export default function ProgressionReviewScreen(): React.JSX.Element {
+  const { progressionApiClient } = useAthleteRuntime();
   const { applicationId } = useLocalSearchParams<{ applicationId: string }>();
   const router = useRouter();
   const [state, setState] = useState<ReviewState>({ kind: "loading" });
@@ -61,7 +62,7 @@ export default function ProgressionReviewScreen(): React.JSX.Element {
   // spinner."
   const fetchProposal = useCallback(
     (mode: "initial" | "refresh") =>
-      getProgressionApiClient()
+      progressionApiClient
         .getProposal(applicationId)
         .then((proposal) => {
           if (proposal.status === "UNAVAILABLE") {
@@ -85,7 +86,7 @@ export default function ProgressionReviewScreen(): React.JSX.Element {
           // the raw platform error text.
           setState({ kind: "network-error", message: "Connect to review this training update." });
         }),
-    [applicationId],
+    [progressionApiClient, applicationId],
   );
 
   useEffect(() => {
@@ -100,14 +101,14 @@ export default function ProgressionReviewScreen(): React.JSX.Element {
       try {
         const response =
           action === "apply"
-            ? await getProgressionApiClient().apply(applicationId, {
+            ? await progressionApiClient.apply(applicationId, {
                 commandId,
                 expectedCurrentEffectiveLoad: proposal.currentEffectiveLoad,
                 expectedLoadingCapabilityId: proposal.loadingCapabilityId,
                 expectedLoadingCapabilityRevision: proposal.loadingCapabilityRevision,
                 expectedResolverProposedLoad: proposal.resolverProposedLoad,
               })
-            : await getProgressionApiClient().keepOriginal(applicationId, { commandId });
+            : await progressionApiClient.keepOriginal(applicationId, { commandId });
 
         const outcome = mapCommandResponseToUiOutcome(response);
         if (outcome.kind === "applied") return setState({ kind: "done", outcome: "applied" });
@@ -137,7 +138,7 @@ export default function ProgressionReviewScreen(): React.JSX.Element {
         setSubmitting(false);
       }
     },
-    [state, submitting, applicationId, fetchProposal],
+    [progressionApiClient, state, submitting, applicationId, fetchProposal],
   );
 
   return (

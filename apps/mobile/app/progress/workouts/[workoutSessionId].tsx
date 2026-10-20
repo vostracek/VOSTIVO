@@ -3,7 +3,8 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { WorkoutHistoryDetailV1 } from "@vostivo/contracts";
-import { getProgressApiClient, logTechnicalFailure } from "../../../src/plan/plan-runtime";
+import { logTechnicalFailure } from "../../../src/plan/plan-runtime";
+import { useAthleteRuntime } from "../../../src/identity/athlete-runtime-context";
 import { ProgressReadController, type ProgressReadState } from "../../../src/progress/progress-read-controller";
 import { workoutDetailView, type WorkoutExerciseView } from "../../../src/progress/progress-presentation";
 import { exerciseHistoryHref } from "../../../src/progress/progress-routes";
@@ -16,12 +17,13 @@ import { BackHeader, HistoryItemUnavailable, LoadingBlocks, StateMessage, progre
  * A 404 (unknown, foreign or non-visible) is one generic state.
  */
 export default function WorkoutHistoryDetailScreen(): React.JSX.Element {
+  const { progressApiClient } = useAthleteRuntime();
   const router = useRouter();
   const { workoutSessionId } = useLocalSearchParams<{ workoutSessionId: string }>();
   const [state, setState] = useState<ProgressReadState<WorkoutHistoryDetailV1>>({ kind: "LOADING" });
   const controller = useMemo(
-    () => new ProgressReadController(() => getProgressApiClient().getWorkoutDetail(workoutSessionId), { onStateChange: setState, logFailure: logTechnicalFailure }),
-    [workoutSessionId],
+    () => new ProgressReadController(() => progressApiClient.getWorkoutDetail(workoutSessionId), { onStateChange: setState, logFailure: logTechnicalFailure }),
+    [progressApiClient, workoutSessionId],
   );
   useEffect(() => {
     void controller.load();

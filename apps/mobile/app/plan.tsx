@@ -3,8 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { PlanOverviewV1, PlanSessionSummaryV1 } from "@vostivo/contracts";
-import { initializeLocalDatabase } from "../src/local-database/client";
-import { getPlanApplicationService } from "../src/plan/plan-runtime";
+import { useAthleteRuntime } from "../src/identity/athlete-runtime-context";
 import { BottomNav } from "../src/ui/bottom-nav";
 import { planRowAccessibilityLabel, planRowTarget, sessionProgressionNote, sessionScheduleNote, type PlanRowTarget } from "../src/plan/plan-session-schedule";
 import { colors, radius, spacing, typography } from "../src/design/tokens";
@@ -27,6 +26,7 @@ type ScreenState =
   | { status: "ready"; overview: PlanOverviewV1 };
 
 export default function PlanScreen(): React.JSX.Element {
+  const { planApplicationService } = useAthleteRuntime();
   const router = useRouter();
   const [state, setState] = useState<ScreenState>({ status: "loading" });
   // Active-session detection is local-only (WDI) and deliberately fetched
@@ -41,8 +41,8 @@ export default function PlanScreen(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false;
 
-    initializeLocalDatabase()
-      .then(() => getPlanApplicationService().getActiveWorkoutSession())
+    planApplicationService
+      .getActiveWorkoutSession()
       .then((activeSession) => {
         if (!cancelled) setHasActiveSessionAnywhere(activeSession !== undefined);
       })
@@ -51,7 +51,7 @@ export default function PlanScreen(): React.JSX.Element {
         // fails; it never blocks the rest of the screen.
       });
 
-    getPlanApplicationService()
+    planApplicationService
       .getCurrentPlan()
       .then((overview) => {
         if (cancelled) return;
@@ -66,7 +66,7 @@ export default function PlanScreen(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [reloadToken]);
+  }, [planApplicationService, reloadToken]);
 
   // Re-check on every focus (e.g. returning from Active Workout) so an
   // active session picked up elsewhere is reflected without a full

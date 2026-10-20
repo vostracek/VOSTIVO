@@ -1,4 +1,5 @@
 import type { SyncPendingCommandsResult } from "../workout/sync-engine";
+import { RuntimeOwnerMismatchError } from "../workout/auth-token-provider";
 
 /**
  * Why a sync pass was requested. Only used for DEV observability — every
@@ -115,6 +116,7 @@ export class WorkoutSyncCoordinator {
 
     let retryable = false;
     let moreMayBePending = false;
+    let ownerMismatch = false;
     try {
       const result = await this.sync();
       retryable = result.retried > 0;
@@ -128,18 +130,30 @@ export class WorkoutSyncCoordinator {
         });
       }
     } catch (error) {
-      // SyncEngine has already returned every affected command to RETRY
-      // before rethrowing, so this is retryable work, not a lost command.
-      retryable = true;
-      this.logger.debug("workout sync failed unexpectedly", {
-        trigger,
-        error: error instanceof Error ? error.name : "unknown",
-      });
+      if (error instanceof RuntimeOwnerMismatchError) {
+        // Slice B: the session is not this runtime's owner. Not a failed
+        // retry — no backoff, no failure count; the IdentityGate replaces
+        // this runtime. A later trigger simply re-checks (still no network).
+        ownerMismatch = true;
+        this.logger.debug("workout sync paused: session is not the runtime owner", { trigger });
+      } else {
+        // SyncEngine has already returned every affected command to RETRY
+        // before rethrowing, so this is retryable work, not a lost command.
+        retryable = true;
+        this.logger.debug("workout sync failed unexpectedly", {
+          trigger,
+          error: error instanceof Error ? error.name : "unknown",
+        });
+      }
     } finally {
       this.running = false;
     }
 
     if (this.disposed) return;
+    if (ownerMismatch) {
+      this.followUpTrigger = undefined;
+      return;
+    }
 
     if (retryable) {
       this.consecutiveFailures += 1;

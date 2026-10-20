@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { sql } from "drizzle-orm";
@@ -9,10 +9,6 @@ import { AdjustedWorkoutStartService } from "../workout/adjusted-workout-start";
 import { WorkoutRepository } from "../workout/workout-repository";
 import { AvailableTimeFlowController, type AvailableTimeFlowPorts } from "./available-time-controller";
 import { BENCH_SETS, WORKOUT_ID, adjustPreview, workoutPreview } from "./testing/fixtures";
-
-vi.mock("../local-database/client", () => ({
-  initializeLocalDatabase: () => Promise.reject(new Error("native expo-sqlite is not available under vitest")),
-}));
 
 /**
  * Available-Time Slice D, the critical boundary (task §13/§25.23/§25.24):

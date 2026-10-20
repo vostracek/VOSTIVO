@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ValidationPipe } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { SyncWorkoutCommandsResponse } from "@vostivo/contracts";
@@ -80,6 +81,8 @@ describe("POST /api/v1/sync/workout-commands (auth boundary)", () => {
       .compile();
 
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
+    // Same global pipe as main.ts, so the DTO's required ownerUserId is enforced here too.
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
   });
@@ -103,7 +106,7 @@ describe("POST /api/v1/sync/workout-commands (auth boundary)", () => {
 
   it("valid token: ownership comes from the authenticated actor, not the body", async () => {
     const response = await inject(
-      { commands: [] },
+      { ownerUserId: ACTIVE_IDENTITY.userId, commands: [] },
       { authorization: "Bearer valid-active" },
     );
 
@@ -112,5 +115,12 @@ describe("POST /api/v1/sync/workout-commands (auth boundary)", () => {
     // called with the actor's real userId — proving the controller never
     // reads identity out of the request payload.
     expect(fakeService.lastCalledUserId).toBe(ACTIVE_IDENTITY.userId);
+  });
+
+  it("Slice B: a batch without ownerUserId (or with a non-UUID one) is a 400 and never reaches the service", async () => {
+    fakeService.lastCalledUserId = undefined;
+    expect((await inject({ commands: [] }, { authorization: "Bearer valid-active" })).statusCode).toBe(400);
+    expect((await inject({ ownerUserId: "not-a-uuid", commands: [] }, { authorization: "Bearer valid-active" })).statusCode).toBe(400);
+    expect(fakeService.lastCalledUserId).toBeUndefined();
   });
 });

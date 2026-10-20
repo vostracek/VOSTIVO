@@ -169,6 +169,10 @@ export class WorkoutCommandDto {
 export const MAX_COMMANDS_PER_SYNC_BATCH = 500;
 
 export class SyncWorkoutCommandsRequestDto {
+  /** Auth & Local Athlete Boundary V1 Slice B — consistency guard only (see `SyncWorkoutCommandsRequest.ownerUserId`); never authorization. */
+  @IsUUID()
+  ownerUserId!: string;
+
   @ArrayMaxSize(MAX_COMMANDS_PER_SYNC_BATCH)
   @ValidateNested({ each: true })
   @Type(() => WorkoutCommandDto)

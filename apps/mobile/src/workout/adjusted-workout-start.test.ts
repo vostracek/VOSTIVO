@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { sql } from "drizzle-orm";
@@ -7,13 +7,6 @@ import { createEntityId, type PrescribedSetV1, type WorkoutPrescriptionV1 } from
 import { openTestLocalDatabase, type TestDatabaseConnection } from "../local-database/testing/node-sqlite-database";
 import { AdjustedWorkoutStartService, type WorkoutSyncRequester } from "./adjusted-workout-start";
 import { WorkoutRepository } from "./workout-repository";
-
-// The production default opens the native encrypted expo-sqlite database,
-// which does not exist under vitest — every repository here is given the
-// real-SQLite test database explicitly instead.
-vi.mock("../local-database/client", () => ({
-  initializeLocalDatabase: () => Promise.reject(new Error("native expo-sqlite is not available under vitest")),
-}));
 
 /**
  * Available-Time Adaptation V1 — Slice C: "Start adjusted workout" through

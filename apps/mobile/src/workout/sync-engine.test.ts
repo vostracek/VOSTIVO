@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SyncWorkoutCommandsRequest, SyncWorkoutCommandsResponse, WorkoutCommandV1 } from "@vostivo/contracts";
 import { SyncEngine } from "./sync-engine";
 import type { OutboxCommandRecord, OutboxPort } from "./outbox-port";
-import type { AuthTokenProvider } from "./auth-token-provider";
+import { RuntimeOwnerMismatchError, type AuthTokenProvider } from "./auth-token-provider";
 import { TransientSyncFailure, type WorkoutSyncApiClient } from "./workout-sync-api-client";
+
+const OWNER = "0190a000-0000-7000-8000-00000000000a";
 
 /**
  * Pure orchestration tests (spec section 30) — no SQLite, no network, no
@@ -80,7 +82,7 @@ class FailingAuthTokenProvider implements AuthTokenProvider {
 describe("SyncEngine", () => {
   it("does nothing when the outbox is empty", async () => {
     const outbox = new InMemoryOutbox([]);
-    const engine = new SyncEngine(outbox, new WorkingAuthTokenProvider(), {
+    const engine = new SyncEngine(OWNER, outbox, new WorkingAuthTokenProvider(), {
       syncCommands: () => Promise.resolve({ acknowledgements: [] }),
     });
 
@@ -90,7 +92,7 @@ describe("SyncEngine", () => {
 
   it("spec section 32: an auth failure leaves every pending command retryable, never rejected", async () => {
     const outbox = new InMemoryOutbox(["cmd-1", "cmd-2"]);
-    const engine = new SyncEngine(outbox, new FailingAuthTokenProvider(), {
+    const engine = new SyncEngine(OWNER, outbox, new FailingAuthTokenProvider(), {
       syncCommands: () => Promise.reject(new Error("should never be called")),
     });
 
@@ -106,7 +108,7 @@ describe("SyncEngine", () => {
     const client: WorkoutSyncApiClient = {
       syncCommands: () => Promise.reject(new TransientSyncFailure("offline")),
     };
-    const engine = new SyncEngine(outbox, new WorkingAuthTokenProvider(), client);
+    const engine = new SyncEngine(OWNER, outbox, new WorkingAuthTokenProvider(), client);
 
     const result = await engine.syncPendingCommands();
 
@@ -125,7 +127,7 @@ describe("SyncEngine", () => {
           })),
         }),
     };
-    const engine = new SyncEngine(outbox, new WorkingAuthTokenProvider(), client);
+    const engine = new SyncEngine(OWNER, outbox, new WorkingAuthTokenProvider(), client);
 
     const result = await engine.syncPendingCommands();
 
@@ -141,7 +143,7 @@ describe("SyncEngine", () => {
       syncCommands: () =>
         Promise.resolve({ acknowledgements: [{ commandId: "cmd-1", outcome: "REJECTED" }] }),
     };
-    const engine = new SyncEngine(outbox, new WorkingAuthTokenProvider(), client);
+    const engine = new SyncEngine(OWNER, outbox, new WorkingAuthTokenProvider(), client);
 
     const result = await engine.syncPendingCommands();
 
@@ -165,7 +167,7 @@ describe("SyncEngine", () => {
         });
       },
     };
-    const engine = new SyncEngine(outbox, new WorkingAuthTokenProvider(), client);
+    const engine = new SyncEngine(OWNER, outbox, new WorkingAuthTokenProvider(), client);
 
     await engine.syncPendingCommands(); // fails transiently, stays RETRY
     expect(outbox.statuses.get("cmd-1")).toBe("RETRY");
@@ -190,7 +192,7 @@ describe("SyncEngine", () => {
         });
       },
     };
-    const engine = new SyncEngine(outbox, new WorkingAuthTokenProvider(), client);
+    const engine = new SyncEngine(OWNER, outbox, new WorkingAuthTokenProvider(), client);
 
     // Two "independent" triggers (e.g. a workout mutation and an app-resume
     // event) fire before the first network call has resolved.
@@ -215,5 +217,53 @@ describe("SyncEngine", () => {
     const thirdResult = await engine.syncPendingCommands();
     expect(callCount).toBe(1);
     expect(thirdResult.attempted).toBe(0);
+  });
+});
+
+describe("SyncEngine — Auth & Local Athlete Boundary V1 Slice B owner binding", () => {
+  class MismatchedOwnerTokenProvider implements AuthTokenProvider {
+    getAccessToken(): Promise<string> {
+      return Promise.reject(new RuntimeOwnerMismatchError());
+    }
+  }
+
+  it("SYNC-21/22: every batch carries the runtime's verified ownerUserId", async () => {
+    const requests: SyncWorkoutCommandsRequest[] = [];
+    const client: WorkoutSyncApiClient = {
+      syncCommands: (_token, request) => {
+        requests.push(request);
+        return Promise.resolve({ acknowledgements: request.commands.map((c) => ({ commandId: c.commandId, outcome: "APPLIED" as const })) });
+      },
+    };
+    const ownerB = "0190a000-0000-7000-8000-00000000000b";
+
+    await new SyncEngine(OWNER, new InMemoryOutbox(["a-1"]), new WorkingAuthTokenProvider(), client).syncPendingCommands();
+    await new SyncEngine(ownerB, new InMemoryOutbox(["b-1"]), new WorkingAuthTokenProvider(), client).syncPendingCommands();
+
+    expect(requests.map((r) => [r.ownerUserId, r.commands.map((c) => c.commandId)])).toEqual([
+      [OWNER, ["a-1"]],
+      [ownerB, ["b-1"]],
+    ]);
+  });
+
+  it("SYNC-23/24: runtime owner != current session -> no network call, the outbox is not touched (no SYNCING, no attempt, no RETRY)", async () => {
+    const outbox = new InMemoryOutbox(["cmd-1", "cmd-2"]);
+    const syncCommands = vi.fn<WorkoutSyncApiClient["syncCommands"]>();
+    const engine = new SyncEngine(OWNER, outbox, new MismatchedOwnerTokenProvider(), { syncCommands });
+
+    await expect(engine.syncPendingCommands()).rejects.toBeInstanceOf(RuntimeOwnerMismatchError);
+
+    expect(syncCommands).not.toHaveBeenCalled();
+    expect([...outbox.statuses.values()]).toEqual(["PENDING", "PENDING"]);
+  });
+
+  it("server 409 SYNC_OWNER_MISMATCH (defence in depth): nothing was processed -> rows go back to retryable for their owner and the mismatch propagates", async () => {
+    const outbox = new InMemoryOutbox(["cmd-1"]);
+    const engine = new SyncEngine(OWNER, outbox, new WorkingAuthTokenProvider(), {
+      syncCommands: () => Promise.reject(new RuntimeOwnerMismatchError()),
+    });
+
+    await expect(engine.syncPendingCommands()).rejects.toBeInstanceOf(RuntimeOwnerMismatchError);
+    expect(outbox.statuses.get("cmd-1")).toBe("RETRY");
   });
 });

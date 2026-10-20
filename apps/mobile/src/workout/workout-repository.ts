@@ -12,7 +12,6 @@ import {
 } from "@vostivo/domain";
 import type { WorkoutCommandV1 } from "@vostivo/contracts";
 import * as schema from "../local-database/schema";
-import { initializeLocalDatabase } from "../local-database/client";
 import { isRowPresent } from "../local-database/row-presence";
 import type {
   ActivePerformedExercise,
@@ -26,7 +25,12 @@ import { normalizeStoredPrescription } from "./prescription-compat";
 
 type Db = ExpoSQLiteDatabase<typeof schema>;
 
-/** How the repository reaches its local database — the real encrypted expo-sqlite database by default. */
+/**
+ * How the repository reaches its local database. Always injected: in the
+ * app it is the ONE athlete database of the runtime that owns this
+ * repository (Auth & Local Athlete Boundary V1 Slice B) — the repository
+ * itself never chooses a database and never filters by user.
+ */
 export type LocalDatabaseProvider = () => Promise<Db>;
 
 export interface CompleteSetInput {
@@ -175,11 +179,11 @@ interface SetRow {
  */
 export class WorkoutRepository implements OutboxPort {
   /**
-   * `openDatabase` exists so the exact same SQL/transaction code can run
-   * against a real (non-native) SQLite engine in tests; production always
-   * uses the default encrypted expo-sqlite database.
+   * `openDatabase` is the owner runtime's database (the encrypted
+   * expo-sqlite file of one athlete) in the app, and a real (non-native)
+   * SQLite engine in tests — the exact same SQL/transaction code either way.
    */
-  constructor(private readonly openDatabase: LocalDatabaseProvider = initializeLocalDatabase) {}
+  constructor(private readonly openDatabase: LocalDatabaseProvider) {}
 
   /**
    * `availableTimeApplication` (Available-Time Adaptation V1 Slice C) is

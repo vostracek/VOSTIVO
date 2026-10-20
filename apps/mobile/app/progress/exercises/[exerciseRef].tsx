@@ -3,7 +3,8 @@ import { ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { ExerciseExposureV1 } from "@vostivo/contracts";
-import { getProgressApiClient, logTechnicalFailure } from "../../../src/plan/plan-runtime";
+import { logTechnicalFailure } from "../../../src/plan/plan-runtime";
+import { useAthleteRuntime } from "../../../src/identity/athlete-runtime-context";
 import { PagedHistoryController, type PagedHistoryState } from "../../../src/progress/paged-history-controller";
 import { exerciseExposureKey, exerciseHistoryPages, type ExerciseHistoryHeader } from "../../../src/progress/progress-history";
 import { exerciseHistoryHeaderView, exposureView } from "../../../src/progress/progress-presentation";
@@ -17,11 +18,12 @@ import { BackHeader, HistoryItemUnavailable, LoadingBlocks, StateMessage, progre
  * No graph, e1RM or tonnage. "Load more" with the server's cursor.
  */
 export default function ExerciseHistoryScreen(): React.JSX.Element {
+  const { progressApiClient } = useAthleteRuntime();
   const { exerciseRef } = useLocalSearchParams<{ exerciseRef: string }>();
   const [state, setState] = useState<PagedHistoryState<ExerciseExposureV1, ExerciseHistoryHeader>>({ kind: "LOADING" });
   const controller = useMemo(
-    () => new PagedHistoryController(exerciseHistoryPages(getProgressApiClient(), exerciseRef), exerciseExposureKey, { onStateChange: setState, logFailure: logTechnicalFailure }),
-    [exerciseRef],
+    () => new PagedHistoryController(exerciseHistoryPages(progressApiClient, exerciseRef), exerciseExposureKey, { onStateChange: setState, logFailure: logTechnicalFailure }),
+    [progressApiClient, exerciseRef],
   );
   useEffect(() => {
     void controller.load();

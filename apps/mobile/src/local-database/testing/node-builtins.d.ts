@@ -1,8 +1,8 @@
 /**
  * TEST-ONLY ambient types for the few Node built-ins the real-SQLite test
- * adapter (`node-sqlite-database.ts`) uses under vitest. Deliberately not
- * `@types/node`: that would add Node globals (timers, `process`, ...) to a
- * React Native app's type environment. Never imported by app code — Metro
+ * adapter (`node-sqlite-database.ts`) and the source-scanning tests use
+ * under vitest. Deliberately not `@types/node`: that would add Node globals
+ * (timers, `process`, ...) to a React Native app's type environment. Never imported by app code — Metro
  * never bundles these modules.
  */
 declare module "node:sqlite" {
@@ -28,6 +28,8 @@ declare module "node:os" {
 }
 
 declare module "node:fs" {
-  export function rmSync(path: string, options?: { readonly force?: boolean }): void;
+  export function rmSync(path: string, options?: { readonly force?: boolean; readonly recursive?: boolean }): void;
   export function readFileSync(path: string | URL, encoding: "utf8"): string;
+  export function mkdirSync(path: string, options?: { readonly recursive?: boolean }): void;
+  export function readdirSync(path: string | URL): string[];
 }

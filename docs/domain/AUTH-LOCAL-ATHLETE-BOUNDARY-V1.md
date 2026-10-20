@@ -2,9 +2,11 @@
 
 **Status:** Phase 0 reconciliation COMPLETE; architecture decisions
 APPROVED by tech lead (2026-10-19, §23). Slices renumbered (§21). Slice A —
-Server Receipt Ownership Hardening: IMPLEMENTED / awaiting tech-lead closure
-(2026-10-19, §24; repo-wide idempotency closure audit §25). Slices B–E: not
-started.
+Server Receipt Ownership Hardening: CLOSED / tech-lead approved
+(2026-10-19, §24; repo-wide idempotency closure audit §25). Slice B — Local
+Athlete Storage + IdentityGate: CLOSED / tech-lead approved
+(2026-10-20, §26). Slices C–E:
+not started.
 
 **Answers:** *"Whose workout is this phone showing, and who is it syncing
 as?"* — always exactly the authenticated athlete's, and nothing else.
@@ -459,10 +461,11 @@ safe next product phase.
 The Phase 0 draft listed the client store first; the approved order puts
 the server hardening first (D-9).
 
-**Slice A — Server Receipt Ownership Hardening.** IMPLEMENTED / awaiting
-tech-lead closure — see §24 and the repo-wide closure audit §25.
+**Slice A — Server Receipt Ownership Hardening.** CLOSED / tech-lead
+approved (2026-10-19) — see §24 and the repo-wide closure audit §25.
 
 **Slice B — Local Athlete Storage + IdentityGate (mobile, dev auth).**
+CLOSED / tech-lead approved (2026-10-20) — see §26.
 - Job: make cross-athlete local exposure structurally impossible.
 - Scope: `AuthSession` abstraction (dev source only); verified `GET /me`
   identity resolution; identity binding store; per-owner DB file + per-owner
@@ -533,7 +536,7 @@ tech-lead closure — see §24 and the repo-wide closure audit §25.
   environment gate).
 - **D-9** APPROVED — server hardening first (Slice A).
 
-## 24. Slice A — Server Receipt Ownership Hardening: evidence (2026-10-19) — IMPLEMENTED / awaiting tech-lead review
+## 24. Slice A — Server Receipt Ownership Hardening: evidence (2026-10-19) — CLOSED / tech-lead approved (2026-10-19)
 
 **Locked rule: WORKOUT COMMAND IDEMPOTENCY IS OWNER-SCOPED.** The
 idempotency identity is `(authenticated userId, commandId)`, never
@@ -716,3 +719,149 @@ unchanged.
   target) stays green in the existing progression-application, worker and
   API suites (§24 regression list).
 
+
+## 26. Slice B — Local Athlete Storage + IdentityGate: evidence (2026-10-20) — CLOSED / tech-lead approved (2026-10-20)
+
+**Locked by this slice:** NOTHING ATHLETE-OWNED EXISTS BEFORE READY; THE
+LOCAL OWNER IS THE VERIFIED INTERNAL `userId`, NEVER A TOKEN CLAIM, EMAIL OR
+"THE DB THAT HAPPENS TO EXIST"; ONE ENCRYPTED DB + ONE KEY PER ATHLETE; AN
+OWNER CHANGE DISPOSES THE OLD RUNTIME BEFORE THE NEXT ONE IS RESOLVED;
+SYNC CARRIES `ownerUserId` AND REFUSES TO SEND UNDER ANOTHER IDENTITY; THE
+LEGACY `vostivo.db` IS QUARANTINED, NEVER ASSIGNED.
+
+### 26.1 Session abstraction (`apps/mobile/src/identity/`)
+
+`AuthSession {provider, providerSubject, accessToken}` behind
+`AuthSessionSource {getSession, subscribe}` (`auth-session.ts`). Slice B
+ships only dev/none sources (`auth-session-config.ts`
+`createAuthSessionWiring`): production → `NoSignInAuthSessionSource`, and
+it THROWS at startup if `EXPO_PUBLIC_DEV_JWT` or `EXPO_PUBLIC_DEV_JWTS` is
+set (AUTH-LOCAL-014). Dev: `EXPO_PUBLIC_DEV_JWTS=alias=jwt,alias=jwt` builds
+`DevAuthSessionSource` (selection persisted under SecureStore
+`vostivo.dev-identity.selected-alias`) — the switcher exists only when
+`__DEV__` AND `EXPO_PUBLIC_DEV_JWTS` is set (D-8); a single legacy
+`EXPO_PUBLIC_DEV_JWT` gives one fixed `dev` identity. The subject is read
+unverified (`jwt-subject.ts`) only as a lookup key — trust comes from §26.2.
+
+### 26.2 Verified binding
+
+`resolveIdentity` (`identity-resolution.ts`): online → `GET /api/v1/me`
+(`verified-me-client.ts`: VERIFIED / UNAUTHORIZED 401·403 / UNREACHABLE
+network·5xx / INVALID_RESPONSE) → record binding → VERIFIED. 401 →
+IDENTITY_ERROR (never a binding fallback). Unreachable → stored binding
+(OFFLINE_BINDING) or NEEDS_NETWORK. The binding is written ONLY from a
+verified `/me` (AUTH-LOCAL-013): SecureStore `vostivo.identity-bindings.v1` =
+`{version:1, bindings:[{provider, providerSubject, userId,
+athleteProfileId, verifiedAt}]}`, max 8 (least-recently-verified evicted);
+`(provider, subject)` already bound to another `userId`, or a `userId` bound
+to another subject → `IdentityBindingConflictError`, nothing written →
+BINDING_CONFLICT (fail closed). A corrupt store reads as empty (→ online
+re-verification).
+
+### 26.3 IdentityGate state machine
+
+`IdentityGateController` (`identity-gate-controller.ts`): BOOTING →
+VERIFYING → READY | NEEDS_NETWORK | LOCAL_DATA_UNAVAILABLE | IDENTITY_ERROR
+(reasons NO_SESSION / UNAUTHORIZED / BINDING_CONFLICT / INVALID_RESPONSE /
+UNEXPECTED). Only READY carries a runtime. Evaluations are serialized;
+superseded tickets dispose what they built. Identity change: the current
+runtime is detached and `dispose()` AWAITED (DB closed) before the next
+identity is resolved/opened. Same subject + new token: same runtime kept,
+re-verified in the background; refusal/conflict tears it down. `IdentityGate`
+(`identity-gate.tsx`) renders the screen tree only in READY as
+`<AthleteRuntimeProvider key={userId}>`; screens get everything via
+`useAthleteRuntime()` (throws outside READY). Non-READY renders a calm gate
+screen with "Try again" (NEEDS_NETWORK copy: "Connect once to verify this
+account"). Offline: a known subject opens READY offline from its binding; an
+unknown subject never opens anything. No re-verification is triggered when
+the network returns after an offline READY (limitation, Slice C).
+
+### 26.4 Per-athlete database and keys
+
+`athleteDatabaseName(userId)` = `vostivo-athlete-<userId>.db`;
+`athleteDatabaseKeyStorageKey(userId)` =
+`vostivo.local-db-encryption-key.<userId>` (UUID-validated, no email/name).
+`decideAthleteDatabaseOpen`: no file + no key → generate + STORE key first,
+then create; file + key → open; file without key → LOCAL_DATA_UNAVAILABLE
+(no key generated, file untouched); key without file → create with it
+(interrupted first open); malformed/non-opening key → LOCAL_DATA_UNAVAILABLE.
+`openNativeAthleteDatabase` (`local-database/client.ts`) probes with a
+keyless separate connection, then opens with SQLCipher, verifies, applies
+pragmas, runs migrations. Nothing is ever deleted. The global
+`initializeLocalDatabase` and module-singleton runtime are gone:
+`createAthleteRuntime` (`plan/plan-runtime.ts`) builds one owner-scoped
+container; after `dispose()` its repository provider rejects
+(`AthleteRuntimeDisposedError`). Active workout, PREV, drafts and rest timer
+are physically per-file — no name/owner filtering exists or is needed.
+
+### 26.5 Legacy quarantine
+
+`vostivo.db` and its device key (`LEGACY_DATABASE_NAME`,
+`LEGACY_DATABASE_KEY_STORAGE_KEY`) are never opened, read, assigned, synced
+or deleted (AUTH-LOCAL-011). Its data is invisible to the new runtime
+(accepted, D-6). `no-hidden-runtime-path.test.ts` scans the source for any
+remaining non-gated runtime/DB entry point.
+
+### 26.6 Sync ownership
+
+`SyncEngine(ownerUserId, …)` obtains the token BEFORE `markSyncing`;
+`OwnerBoundAuthTokenProvider` throws `RuntimeOwnerMismatchError` unless the
+current session has the runtime's provider + subject → nothing sent, outbox
+untouched. Every batch carries `ownerUserId`. Server
+(`workout-sync.service.ts`): `ownerUserId !== actor.userId` → whole-batch
+409 `SYNC_OWNER_MISMATCH` before any command — zero receipts/sessions/sets/
+claims/cursor rows; DTO `@IsUUID()` required (400 otherwise). It is a
+CONSISTENCY GUARD, NOT AUTHORIZATION (BOLA stays the boundary). Client: 409
+→ `RuntimeOwnerMismatchError`; the coordinator schedules no retry/backoff.
+Sync-recovery triggers live inside the owner-keyed tree, so they unsubscribe
+before the next owner exists.
+
+### 26.7 RCPT-005b closure
+
+§24.6's residue is closed in depth: (1) B's runtime cannot read A's outbox
+(separate file + key); (2) A's runtime cannot send under B's session
+(owner-bound token provider); (3) a batch whose `ownerUserId` ≠ actor is
+refused whole (SYNC-OWNER-001). The literal server behavior of §24.6 is kept
+as a documented "SERVER RESIDUE" test; a new real-Postgres test proves A's
+unplanned START + set sent with B's actor → 409, then A's own sync → S is
+A's.
+
+### 26.8 Tests
+
+Mobile (Vitest, real SQLite via `node:sqlite`): `athlete-isolation.test.ts`
+(real gate + runtime + SQLite + fake server: ISO-11..16/19/20/30,
+AUTH-LOCAL-001/002/005/009/011/012, SYNC-21..24, RCPT-005b client side,
+GATE-8/AUTH-LOCAL-003, process death + offline relaunch, GATE-5, crash during
+switch), `identity-gate-controller.test.ts` (GATE-1..10, rapid A→B→A,
+`stop()`), `identity-resolution`, `identity-binding-store`
+(AUTH-LOCAL-013), `verified-me-client`, `jwt-subject`, `auth-session-config`
+(AUTH-LOCAL-014, DEV-41..45), `local-database/athlete-database` (LOCAL-16..20,
+cases A–D), sync-engine/coordinator (SYNC-21..24, 409), and
+`no-hidden-runtime-path`. AUTH-LOCAL-007 is structural (no runtime before
+READY). API real Postgres: SYNC-OWNER-001/002, RCPT-005b CLOSED, controller
+400 for missing/non-UUID `ownerUserId`.
+
+### 26.9 Human acceptance (2026-10-20, evidence outside the repo:
+`vostivo-acceptance-evidence/auth-local-slice-b/`)
+
+New AVD `Vostivo_Auth_Slice_B` (dev build + Metro), real API + worker,
+`vostivo_manual`, two fresh athletes A/B, dev switcher. A started online; API
+stopped; A logged 60×10 offline + draft 8 + rest timer. Switch → B with API
+down: NEEDS_NETWORK (B never verified; no fallback). API up → B READY, Start
+(no A Resume); server still had only A's START (A's set NOT sent as B). B's
+own workout showed no A set/draft/timer/PREV; B logged 60×12 → B-owned
+receipts, session, claim. Switch → A: A's pending set synced as A; Resume
+intact (60×10, draft 8). API down + force-stop + relaunch → READY offline as
+A; offline switch → B (bound) shows only B's data. Device: exactly two
+`vostivo-athlete-<userId>.db` files, encrypted headers. A planted legacy
+`vostivo.db` stayed byte-identical (SHA-256 + mtime) across an online
+relaunch. Final SQL: A = START + 2 sets, B = START + 1 set, 0 cross-owner
+receipts, one CANONICAL claim each, no SECONDARY. No JWT in any evidence log.
+
+### 26.10 Known limitations
+
+Gate screen is a non-navigator root before READY; a server 409 bumps
+`attempt_count` once (no backoff); dev JWTs are inlined into dev bundles via
+`EXPO_PUBLIC_*`; legacy data is invisible (D-6); no re-verification on
+network regain after offline READY; binding store capped at 8; the probe
+treats any non-empty plaintext file as HAS_CONTENT (→ key path).

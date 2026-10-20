@@ -152,8 +152,21 @@ export interface WorkoutCommandAcknowledgementV1 {
 }
 
 export interface SyncWorkoutCommandsRequest {
+  /**
+   * Auth & Local Athlete Boundary V1 Slice B — the verified `userId` that
+   * owns the mobile runtime (and therefore the local outbox) this batch was
+   * read from. A CONSISTENCY / wrong-runtime guard only, never
+   * authorization: the server compares it with the authenticated actor and
+   * rejects the WHOLE batch (409 `SYNC_OWNER_MISMATCH`, nothing processed or
+   * persisted) on mismatch. Ownership itself still comes only from the
+   * bearer token.
+   */
+  readonly ownerUserId: string;
   readonly commands: readonly WorkoutCommandV1[];
 }
+
+/** 409 body code: the batch's `ownerUserId` is not the authenticated actor (Slice B). */
+export const SYNC_OWNER_MISMATCH = "SYNC_OWNER_MISMATCH";
 
 export interface SyncWorkoutCommandsResponse {
   readonly acknowledgements: readonly WorkoutCommandAcknowledgementV1[];

@@ -1,44 +1,70 @@
 import { openDatabaseSync, type SQLiteDatabase } from "expo-sqlite";
 import { sql } from "drizzle-orm";
-import { drizzle, type ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
+import { drizzle } from "drizzle-orm/expo-sqlite";
 import * as schema from "./schema";
-import { getOrCreateDatabaseKey } from "../infrastructure/database-key";
+import { generateDatabaseKey } from "../infrastructure/database-key";
+import { getSecureValue, setSecureValue } from "../infrastructure/secure-store";
 import { runLocalMigrations, type LocalMigrationStore } from "./migrations";
 import { isRowPresent } from "./row-presence";
-
-const DATABASE_NAME = "vostivo.db";
-
-let cachedDatabase: Promise<ExpoSQLiteDatabase<typeof schema>> | undefined;
+import { openAthleteDatabase, type AthleteDatabasePorts, type DatabaseFileState, type OpenAthleteDatabaseResult } from "./athlete-database";
+import type { AthleteDatabaseHandle, LocalDatabase } from "./athlete-database-handle";
 
 /**
- * Initializes the local SQLCipher-encrypted database and returns a
- * type-safe Drizzle handle, enforcing this order (spec section 5):
+ * Opens THE local SQLCipher-encrypted database of one verified athlete
+ * (Auth & Local Athlete Boundary V1 Slice B; policy in
+ * `athlete-database.ts`). The IdentityGate is the only caller — there is
+ * no process-wide cached database any more, and the legacy `vostivo.db`
+ * is never opened (D-6 quarantine). Per opened file the order is (spec
+ * section 5):
  *
- *   obtain/create key -> open database -> apply PRAGMA key immediately ->
- *   verify the key by forcing a real read -> enable other PRAGMAs ->
- *   run migrations -> expose the database.
- *
- * No caller can reach a `Database` before this sequence completes — there
- * is no other exported way to get one, and the result is cached so the
- * sequence runs exactly once per process.
+ *   probe (no key) -> obtain/create the owner's key -> open -> apply PRAGMA
+ *   key immediately -> verify the key by forcing a real read -> enable
+ *   other PRAGMAs -> run migrations -> expose the database.
  */
-export function initializeLocalDatabase(): Promise<ExpoSQLiteDatabase<typeof schema>> {
-  cachedDatabase ??= initialize();
-  return cachedDatabase;
+export function openNativeAthleteDatabase(userId: string): Promise<OpenAthleteDatabaseResult<AthleteDatabaseHandle>> {
+  return openAthleteDatabase(userId, nativeAthleteDatabasePorts);
 }
 
-async function initialize(): Promise<ExpoSQLiteDatabase<typeof schema>> {
-  const key = await getOrCreateDatabaseKey();
-  const nativeDb = openDatabaseSync(DATABASE_NAME);
+const nativeAthleteDatabasePorts: AthleteDatabasePorts<AthleteDatabaseHandle> = {
+  readKey: getSecureValue,
+  writeKey: setSecureValue,
+  generateKey: generateDatabaseKey,
+  probeFile: probeDatabaseFile,
+  openKeyed: openKeyedDatabase,
+};
 
-  applyEncryptionKey(nativeDb, key);
-  verifyEncryptedDatabaseOpens(nativeDb);
-  enablePragmas(nativeDb);
+/**
+ * Determines, WITHOUT a key, whether the file already holds a database:
+ * opening a missing file creates an empty one (count 0, nothing written);
+ * an existing SQLCipher file cannot be read without its key (SQLITE_NOTADB)
+ * and is therefore `HAS_CONTENT`. Read-only — the probe connection never
+ * writes and is closed before the keyed open.
+ */
+function probeDatabaseFile(databaseName: string): DatabaseFileState {
+  const probe = openDatabaseSync(databaseName, { useNewConnection: true });
+  try {
+    const row = probe.getFirstSync<{ objects: number }>("SELECT count(*) AS objects FROM sqlite_master;");
+    return row !== null && row.objects === 0 ? "EMPTY" : "HAS_CONTENT";
+  } catch {
+    return "HAS_CONTENT";
+  } finally {
+    probe.closeSync();
+  }
+}
 
-  const db = drizzle(nativeDb, { schema });
-  runLocalMigrations(createMigrationStore(db));
-
-  return db;
+function openKeyedDatabase(databaseName: string, key: string): AthleteDatabaseHandle {
+  const nativeDb = openDatabaseSync(databaseName, { useNewConnection: true });
+  try {
+    applyEncryptionKey(nativeDb, key);
+    verifyEncryptedDatabaseOpens(nativeDb);
+    enablePragmas(nativeDb);
+    const db = drizzle(nativeDb, { schema });
+    runLocalMigrations(createMigrationStore(db));
+    return { db, close: () => nativeDb.closeAsync() };
+  } catch (error) {
+    nativeDb.closeSync();
+    throw error;
+  }
 }
 
 /**
@@ -46,11 +72,11 @@ async function initialize(): Promise<ExpoSQLiteDatabase<typeof schema>> {
  * statement executed on a freshly opened connection, before any other
  * read/write — and SQLite PRAGMAs do not support bound `?` parameters, so
  * the key has to be inlined as SQL text rather than passed as a bind
- * parameter. `getOrCreateDatabaseKey()` guarantees this value is always a
- * 64-character lowercase hex string it generated itself (never user
- * input), and the `x'...'` form tells SQLCipher to use it as a raw 256-bit
- * key rather than a passphrase to run through PBKDF2 — appropriate since
- * it is already high-entropy random material, not a human passphrase.
+ * parameter. `decideAthleteDatabaseOpen()` only ever lets a 64-character
+ * lowercase hex string through (generated by `generateDatabaseKey()`, never
+ * user input), and the `x'...'` form tells SQLCipher to use it as a raw
+ * 256-bit key rather than a passphrase to run through PBKDF2 — appropriate
+ * since it is already high-entropy random material, not a human passphrase.
  */
 function applyEncryptionKey(nativeDb: SQLiteDatabase, key: string): void {
   nativeDb.execSync(`PRAGMA key = "x'${key}'";`);
@@ -60,9 +86,9 @@ function applyEncryptionKey(nativeDb: SQLiteDatabase, key: string): void {
  * SQLCipher only actually decrypts the database header/schema on the
  * first real read — an incorrect key does not fail at `PRAGMA key` time,
  * it fails here, with SQLITE_NOTADB ("file is not a database"). Forcing
- * that check immediately means a wrong/corrupted key fails loudly at
- * startup instead of surfacing as a confusing error on some unrelated
- * later query.
+ * that check immediately means a wrong/corrupted key fails at open time
+ * (LOCAL_DATA_UNAVAILABLE) instead of surfacing as a confusing error on
+ * some unrelated later query.
  */
 function verifyEncryptedDatabaseOpens(nativeDb: SQLiteDatabase): void {
   nativeDb.getFirstSync("SELECT count(*) FROM sqlite_master;");
@@ -72,7 +98,7 @@ function enablePragmas(nativeDb: SQLiteDatabase): void {
   nativeDb.execSync("PRAGMA foreign_keys = ON;");
 }
 
-function createMigrationStore(db: ExpoSQLiteDatabase<typeof schema>): LocalMigrationStore {
+function createMigrationStore(db: LocalDatabase): LocalMigrationStore {
   return {
     ensureMigrationsTable: () => {
       db.run(sql`CREATE TABLE IF NOT EXISTS __local_migrations (

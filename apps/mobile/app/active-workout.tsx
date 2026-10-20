@@ -14,7 +14,7 @@ import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import type { ExternalWeightLoad, PrescribedExerciseV1, PrescribedSetV1 } from "@vostivo/domain";
-import { getWorkoutApplicationService, getWorkoutSyncCoordinator } from "../src/plan/plan-runtime";
+import { useAthleteRuntime } from "../src/identity/athlete-runtime-context";
 import type {
   ActivePerformedExercise,
   ActivePerformedSet,
@@ -67,14 +67,14 @@ interface WorkoutSummary {
 type PreviousByExerciseRef = ReadonlyMap<string, readonly PreviousSetPerformance[]>;
 
 export default function ActiveWorkoutScreen(): React.JSX.Element {
+  // The verified owner's runtime (stable for this owner-keyed tree).
+  const { workoutApplicationService: service, workoutSyncCoordinator: syncCoordinator } = useAthleteRuntime();
   const router = useRouter();
   const [state, setState] = useState<ScreenState>({ status: "loading" });
   const [previousByExerciseRef, setPreviousByExerciseRef] = useState<PreviousByExerciseRef>(new Map());
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
 
-  const service = useMemo(() => getWorkoutApplicationService(), []);
-  const syncCoordinator = useMemo(() => getWorkoutSyncCoordinator(), []);
 
   const loadSession = useCallback(async (): Promise<ActiveWorkoutSession | undefined> => {
     const session = await service.getActiveWorkoutSession();

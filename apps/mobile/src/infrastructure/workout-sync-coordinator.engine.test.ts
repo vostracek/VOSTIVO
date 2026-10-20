@@ -5,6 +5,8 @@ import type { OutboxCommandRecord, OutboxPort } from "../workout/outbox-port";
 import { TransientSyncFailure, type WorkoutSyncApiClient } from "../workout/workout-sync-api-client";
 import { WorkoutSyncCoordinator } from "./workout-sync-coordinator";
 
+const OWNER = "0190a000-0000-7000-8000-00000000000a";
+
 /**
  * The Manual Test #4 scenario, end to end through the REAL `SyncEngine`
  * (only the outbox and the HTTP client are in-memory): commands logged
@@ -86,7 +88,7 @@ describe("WorkoutSyncCoordinator + SyncEngine: backend outage while the device s
       { commandId: "cmd-set-3", payload: completeSetCommand("cmd-set-3", 5) },
     ]);
     const api = new OutageApiClient();
-    const engine = new SyncEngine(outbox, { getAccessToken: () => Promise.resolve("token") }, api);
+    const engine = new SyncEngine(OWNER, outbox, { getAccessToken: () => Promise.resolve("token") }, api);
     const coordinator = new WorkoutSyncCoordinator(() => engine.syncPendingCommands());
 
     // Sets 2 and 3 logged while the API is down: each mutation tries once.

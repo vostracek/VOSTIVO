@@ -3,7 +3,8 @@ import { ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { WorkoutHistoryItemV1 } from "@vostivo/contracts";
-import { getProgressApiClient, logTechnicalFailure } from "../../../src/plan/plan-runtime";
+import { logTechnicalFailure } from "../../../src/plan/plan-runtime";
+import { useAthleteRuntime } from "../../../src/identity/athlete-runtime-context";
 import { PagedHistoryController, type PagedHistoryState } from "../../../src/progress/paged-history-controller";
 import { workoutHistoryKey, workoutHistoryPages } from "../../../src/progress/progress-history";
 import { workoutRowView } from "../../../src/progress/progress-presentation";
@@ -17,11 +18,12 @@ import { LoadMoreFooter } from "../../../src/progress/load-more-footer";
  * once per visit (no focus refetch that would reset the loaded pages).
  */
 export default function WorkoutHistoryScreen(): React.JSX.Element {
+  const { progressApiClient } = useAthleteRuntime();
   const router = useRouter();
   const [state, setState] = useState<PagedHistoryState<WorkoutHistoryItemV1, null>>({ kind: "LOADING" });
   const controller = useMemo(
-    () => new PagedHistoryController(workoutHistoryPages(getProgressApiClient()), workoutHistoryKey, { onStateChange: setState, logFailure: logTechnicalFailure }),
-    [],
+    () => new PagedHistoryController(workoutHistoryPages(progressApiClient), workoutHistoryKey, { onStateChange: setState, logFailure: logTechnicalFailure }),
+    [progressApiClient],
   );
   useEffect(() => {
     void controller.load();

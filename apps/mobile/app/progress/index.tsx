@@ -3,7 +3,8 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { ProgressOverviewV1 } from "@vostivo/contracts";
-import { getProgressApiClient, logTechnicalFailure } from "../../src/plan/plan-runtime";
+import { logTechnicalFailure } from "../../src/plan/plan-runtime";
+import { useAthleteRuntime } from "../../src/identity/athlete-runtime-context";
 import { BottomNav } from "../../src/ui/bottom-nav";
 import { ProgressReadController, type ProgressReadState } from "../../src/progress/progress-read-controller";
 import {
@@ -26,9 +27,10 @@ import { LoadingBlocks, SecondaryButton, StateMessage, WorkoutRow, progressStyle
  * are omitted entirely (no placeholders). Refetches on focus; no polling.
  */
 export default function ProgressScreen(): React.JSX.Element {
+  const { progressApiClient } = useAthleteRuntime();
   const router = useRouter();
   const [state, setState] = useState<ProgressReadState<ProgressOverviewV1>>({ kind: "LOADING" });
-  const controller = useMemo(() => new ProgressReadController(() => getProgressApiClient().getOverview(), { onStateChange: setState, logFailure: logTechnicalFailure }), []);
+  const controller = useMemo(() => new ProgressReadController(() => progressApiClient.getOverview(), { onStateChange: setState, logFailure: logTechnicalFailure }), [progressApiClient]);
   useEffect(() => () => controller.dispose(), [controller]);
   useFocusEffect(
     useCallback(() => {

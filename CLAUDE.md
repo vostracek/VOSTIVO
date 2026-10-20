@@ -1538,8 +1538,8 @@ Auth & Local Athlete Boundary V1: Phase 0 COMPLETE; decisions D-1..D-9
                                   quarantine, Profile -> Account, dev-only
                                   identity selector, server first. Spec:
                                   docs/domain/AUTH-LOCAL-ATHLETE-BOUNDARY-V1.md.
-  - Slice A — Server Receipt Ownership Hardening: IMPLEMENTED / awaiting
-                                  tech-lead closure (2026-10-19). WORKOUT
+  - Slice A — Server Receipt Ownership Hardening: CLOSED / tech-lead
+                                  approved (2026-10-19). WORKOUT
                                   COMMAND IDEMPOTENCY IS OWNER-SCOPED:
                                   receipt PK (user_id, command_id)
                                   (migration 0021; user_id was always the
@@ -1562,8 +1562,23 @@ Auth & Local Athlete Boundary V1: Phase 0 COMPLETE; decisions D-1..D-9
                                   backfilled from each row's own application.
                                   Every other namespace is owner-scoped by key
                                   or fingerprint, or server-only.
-  - Slice B — Local Athlete Storage + IdentityGate: not started (also the
-                                  batch ownerUserId consistency guard).
+  - Slice B — Local Athlete Storage + IdentityGate: CLOSED /
+                                  tech-lead approved (2026-10-20).
+                                  NOTHING ATHLETE-OWNED EXISTS BEFORE READY:
+                                  root IdentityGate (verified GET /me ->
+                                  SecureStore sub->userId binding; offline
+                                  only for a known binding) renders the tree
+                                  keyed by userId; one SQLCipher DB + key per
+                                  athlete (vostivo-athlete-<userId>.db);
+                                  owner-scoped createAthleteRuntime (no
+                                  module singletons) disposed before the next
+                                  owner opens; sync token bound to the owner +
+                                  batch ownerUserId (server 409
+                                  SYNC_OWNER_MISMATCH, consistency guard not
+                                  authz) — RCPT-005b closed in depth; legacy
+                                  vostivo.db quarantined; __DEV__-only alias
+                                  switcher. Human acceptance A->B->A +
+                                  offline relaunch performed (spec §26.9).
   - Slice C — Supabase Auth + Session Lifecycle: not started.
   - Slice D — Sign-out + Minimal Account: not started.
   - Slice E — Human Acceptance + Final Closure: not started.

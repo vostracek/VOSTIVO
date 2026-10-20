@@ -1,4 +1,5 @@
-import type { SyncWorkoutCommandsRequest, SyncWorkoutCommandsResponse } from "@vostivo/contracts";
+import { SYNC_OWNER_MISMATCH, type SyncWorkoutCommandsRequest, type SyncWorkoutCommandsResponse } from "@vostivo/contracts";
+import { RuntimeOwnerMismatchError } from "./auth-token-provider";
 
 /**
  * The transport boundary `SyncEngine` depends on — an interface, not a
@@ -40,10 +41,22 @@ export class FetchWorkoutSyncApiClient implements WorkoutSyncApiClient {
     if (response.status >= 500) {
       throw new TransientSyncFailure(`Server error: ${response.status}`);
     }
+    if (response.status === 409 && (await readErrorMessage(response)) === SYNC_OWNER_MISMATCH) {
+      throw new RuntimeOwnerMismatchError();
+    }
     if (!response.ok) {
       throw new Error(`Sync request failed: ${response.status}`);
     }
 
     return (await response.json()) as SyncWorkoutCommandsResponse;
+  }
+}
+
+async function readErrorMessage(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { message?: unknown };
+    return typeof body.message === "string" ? body.message : undefined;
+  } catch {
+    return undefined;
   }
 }

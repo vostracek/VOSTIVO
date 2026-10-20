@@ -1,5 +1,5 @@
 import type { SyncOutcome, SyncWorkoutCommandsRequest } from "@vostivo/contracts";
-import type { AuthTokenProvider } from "./auth-token-provider";
+import { RuntimeOwnerMismatchError, type AuthTokenProvider } from "./auth-token-provider";
 import type { OutboxPort } from "./outbox-port";
 import { TransientSyncFailure, type WorkoutSyncApiClient } from "./workout-sync-api-client";
 
@@ -38,7 +38,15 @@ export class SyncEngine {
   // starts a genuinely new run.
   private inFlight: Promise<SyncPendingCommandsResult> | undefined;
 
+  /**
+   * `ownerUserId` (Auth & Local Athlete Boundary V1 Slice B) is the
+   * verified `userId` that owns this runtime's local database — every
+   * batch carries it so the server can refuse a batch read from the wrong
+   * athlete's outbox. It is fixed for the engine's lifetime: an engine is
+   * never re-pointed at another owner.
+   */
   constructor(
+    private readonly ownerUserId: string,
     private readonly outbox: OutboxPort,
     private readonly authTokenProvider: AuthTokenProvider,
     private readonly apiClient: WorkoutSyncApiClient,
@@ -68,14 +76,14 @@ export class SyncEngine {
     };
     if (pending.length === 0) return result;
 
-    for (const record of pending) {
-      await this.outbox.markSyncing(record.commandId);
-    }
-
+    // The token is obtained BEFORE any outbox row is touched: when the
+    // current session is not this runtime's owner (Slice B), nothing is
+    // sent and nothing is marked — no attempt counted, no backoff.
     let accessToken: string;
     try {
       accessToken = await this.authTokenProvider.getAccessToken();
-    } catch {
+    } catch (error) {
+      if (error instanceof RuntimeOwnerMismatchError) throw error;
       // Cannot authenticate right now (JWT refresh failed, deferred auth
       // wiring, offline) — everything stays retryable (spec section
       // 32/33), never treated as a permanent rejection.
@@ -84,12 +92,23 @@ export class SyncEngine {
       return result;
     }
 
-    const request: SyncWorkoutCommandsRequest = { commands: pending.map((record) => record.payload) };
+    for (const record of pending) {
+      await this.outbox.markSyncing(record.commandId);
+    }
+
+    const request: SyncWorkoutCommandsRequest = { ownerUserId: this.ownerUserId, commands: pending.map((record) => record.payload) };
 
     let response;
     try {
       response = await this.apiClient.syncCommands(accessToken, request);
     } catch (error) {
+      if (error instanceof RuntimeOwnerMismatchError) {
+        // The server refused the whole batch (409 SYNC_OWNER_MISMATCH) —
+        // nothing was processed. Put the rows back for their real owner;
+        // the coordinator schedules no retry for this.
+        for (const record of pending) await this.outbox.markRetry(record.commandId);
+        throw error;
+      }
       // Transient (offline/timeout/5xx) — never classified as permanent;
       // leave everything retryable (spec section 33).
       for (const record of pending) await this.outbox.markRetry(record.commandId);

@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { WorkoutPreviewV1 } from "@vostivo/contracts";
-import { getPlanApplicationService, getWorkoutSyncCoordinator } from "../../src/plan/plan-runtime";
+import { useAthleteRuntime } from "../../src/identity/athlete-runtime-context";
 import { PREVIEW_FOOTER_COPY, previewExerciseView, previewFooter, type PreviewExerciseView } from "../../src/workout/workout-preview-presentation";
 import { isPreviewOnlySource } from "../../src/progress/progress-routes";
 import { colors, radius, spacing, touchTarget, typography } from "../../src/design/tokens";
@@ -32,6 +32,7 @@ type ScreenState =
   | { status: "start-error"; message: string; preview: WorkoutPreviewV1 };
 
 export default function WorkoutPreviewScreen(): React.JSX.Element {
+  const { planApplicationService, workoutSyncCoordinator } = useAthleteRuntime();
   const { plannedWorkoutId, source } = useLocalSearchParams<{ plannedWorkoutId: string; source?: string }>();
   const previewOnly = isPreviewOnlySource(source);
   const router = useRouter();
@@ -40,7 +41,7 @@ export default function WorkoutPreviewScreen(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false;
 
-    getPlanApplicationService()
+    planApplicationService
       .getWorkoutPreview(plannedWorkoutId)
       .then((preview) => {
         if (!cancelled) setState({ status: "ready", preview });
@@ -54,7 +55,7 @@ export default function WorkoutPreviewScreen(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [plannedWorkoutId]);
+  }, [planApplicationService, plannedWorkoutId]);
 
   const onStartWorkout = useCallback(async () => {
     if (state.status !== "ready" && state.status !== "start-error") return;
@@ -68,9 +69,9 @@ export default function WorkoutPreviewScreen(): React.JSX.Element {
       // guard resolves ALREADY_ACTIVE vs STARTED explicitly below; both
       // outcomes land on Active Workout — an already-active session is a
       // resume, never a hang.
-      const outcome = await getPlanApplicationService().startWorkout(preview);
+      const outcome = await planApplicationService.startWorkout(preview);
       // START is durable locally now; syncing it is fire-and-forget.
-      if (outcome.status === "STARTED") getWorkoutSyncCoordinator().requestSync("mutation");
+      if (outcome.status === "STARTED") workoutSyncCoordinator.requestSync("mutation");
       if (outcome.status === "STARTED" || outcome.status === "ALREADY_ACTIVE") {
         // `replace`, not `push`: this screen must not remain underneath
         // Active Workout on the navigation stack. With `push`, returning
@@ -82,7 +83,7 @@ export default function WorkoutPreviewScreen(): React.JSX.Element {
     } catch (error: unknown) {
       setState({ status: "start-error", message: error instanceof Error ? error.message : String(error), preview });
     }
-  }, [state, router, previewOnly]);
+  }, [planApplicationService, workoutSyncCoordinator, state, router, previewOnly]);
 
   const currentPreview = state.status === "ready" || state.status === "starting" || state.status === "start-error" ? state.preview : undefined;
   const footer = currentPreview === undefined ? null : previewFooter(currentPreview, previewOnly);
