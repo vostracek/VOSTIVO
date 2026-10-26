@@ -1810,8 +1810,12 @@ Current known tech debt:  ESLint major-version split (web/mobile on 9.x);
                            local SQLite migrations use a hand-rolled runner
                            instead of drizzle-kit's generated bundle
                            (unverified Metro/babel step); Auth Slice C
-                           acceptance follow-ups (spec §27.9: decimal comma
-                           in load input, no bounded timeout on offline
+                           acceptance follow-ups (spec §27.9: Active Workout
+                           load input accepts a decimal comma since
+                           2026-10-26, but Loading Setup's "Weight step" /
+                           "Available weights" still reject `2,5` — the list
+                           uses `,` as its separator, needs its own locale
+                           decision; no bounded timeout on offline
                            boot, re-auth pill overlap, one unreproduced
                            Fabric SIGSEGV);
                            `apps/mobile` requires `metro.config.js`'s

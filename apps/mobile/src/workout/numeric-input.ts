@@ -16,7 +16,8 @@
  */
 
 const INTEGER_PATTERN = /^\d+$/;
-const DECIMAL_PATTERN = /^\d+(\.\d+)?$/;
+/** One decimal separator, `.` or `,` — a Czech-locale `decimal-pad` offers the comma. */
+const DECIMAL_PATTERN = /^\d+([.,]\d+)?$/;
 
 /** Reps: integer-only when non-empty. `"8.5"` is rejected outright, never silently truncated to `8`. */
 export function parseRepsInput(text: string): number | null {
@@ -27,12 +28,12 @@ export function parseRepsInput(text: string): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-/** Load: decimal entry allowed (e.g. `"42.5"`); `0` is a valid load (e.g. bodyweight-adjacent). */
+/** Load: decimal entry allowed (e.g. `"42.5"` or `"42,5"`); `0` is a valid load (e.g. bodyweight-adjacent). */
 export function parseLoadInput(text: string): number | null {
   const trimmed = text.trim();
   if (trimmed === "") return null;
   if (!DECIMAL_PATTERN.test(trimmed)) return null;
-  const parsed = Number.parseFloat(trimmed);
+  const parsed = Number.parseFloat(trimmed.replace(",", "."));
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 

@@ -34,6 +34,17 @@ describe("parseRepsInput", () => {
   it("rejects non-numeric text", () => {
     expect(parseRepsInput("abc")).toBeNull();
   });
+
+  it("rejects a hardware-keyboard symbol without blocking the digits once it is deleted", () => {
+    // Android RN numeric fields do not filter hardware keys: Shift+8 inserts "*".
+    expect(parseRepsInput("8*")).toBeNull();
+    expect(parseRepsInput("8")).toBe(8);
+    expect(parseRepsInput("10")).toBe(10);
+  });
+
+  it("accepts a pasted value with surrounding whitespace", () => {
+    expect(parseRepsInput(" 10 ")).toBe(10);
+  });
 });
 
 describe("parseLoadInput", () => {
@@ -65,6 +76,32 @@ describe("parseLoadInput", () => {
 
   it("rejects non-numeric text", () => {
     expect(parseLoadInput("abc")).toBeNull();
+  });
+
+  it("rejects a hardware-keyboard symbol without blocking the digits once it is deleted", () => {
+    expect(parseLoadInput("60*")).toBeNull();
+    expect(parseLoadInput("60")).toBe(60);
+  });
+
+  it("accepts a pasted value with surrounding whitespace", () => {
+    expect(parseLoadInput(" 60 ")).toBe(60);
+  });
+
+  it("accepts a decimal comma (Czech-locale decimal-pad) and still accepts a decimal point", () => {
+    expect(parseLoadInput("42,5")).toBe(42.5);
+    expect(parseLoadInput(" 42,5 ")).toBe(42.5);
+    expect(parseLoadInput("42.5")).toBe(42.5);
+    expect(parseLoadInput("0,5")).toBe(0.5);
+    // Deliberate: a comma is always the decimal separator here, never a thousands separator.
+    expect(parseLoadInput("1,000")).toBe(1);
+    expect(loadToAmountMilli(parseLoadInput("42,5") ?? 0)).toBe(42500);
+  });
+
+  it("rejects an incomplete or ambiguous decimal entry", () => {
+    expect(parseLoadInput("42,")).toBeNull();
+    expect(parseLoadInput(",5")).toBeNull();
+    expect(parseLoadInput("4.2,5")).toBeNull();
+    expect(parseLoadInput("42,5,0")).toBeNull();
   });
 });
 
