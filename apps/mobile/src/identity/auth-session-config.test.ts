@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { createAuthSessionWiring, parseDevIdentities, type AuthSessionEnvironment } from "./auth-session-config";
+import { createAuthSessionWiring as createWiring, parseDevIdentities, type AuthSessionEnvironment, type SupabaseSessionSource } from "./auth-session-config";
 import { NoSignInAuthSessionSource } from "./auth-session";
 import { DEV_IDENTITY_SELECTION_STORAGE_KEY, DevAuthSessionSource } from "./dev-auth-session-source";
 import { devToken, InMemorySecureValueStore } from "./testing/fakes";
@@ -9,16 +9,69 @@ const TOKEN_A = devToken("sub-a");
 const TOKEN_B = devToken("sub-b");
 const DEV_JWTS = `athlete-a=${TOKEN_A},athlete-b=${TOKEN_B}`;
 
+const NO_SUPABASE = { url: undefined, publishableKey: undefined };
+const SUPABASE = { url: "https://project-ref.supabase.co", publishableKey: "sb_publishable_placeholder" };
+
 function env(overrides: Partial<AuthSessionEnvironment>): AuthSessionEnvironment {
-  return { environment: "local", devJwt: undefined, devJwts: undefined, isDevBuild: true, ...overrides };
+  return { environment: "local", devJwt: undefined, devJwts: undefined, isDevBuild: true, supabase: NO_SUPABASE, ...overrides };
+}
+
+/** A stand-in for the real Supabase source: these tests are about WHICH source is wired, never about the SDK. */
+function fakeSupabaseSource(): SupabaseSessionSource {
+  return {
+    subscribe: () => () => undefined,
+    getSession: async () => null,
+    requestOtp: async () => ({ ok: true }),
+    verifyOtp: async () => ({ ok: true }),
+    attachAppLifecycle: () => () => undefined,
+  };
+}
+
+const createSupabase = vi.fn(fakeSupabaseSource);
+
+function createAuthSessionWiring(environment: AuthSessionEnvironment, store: Parameters<typeof createWiring>[1]): ReturnType<typeof createWiring> {
+  return createWiring(environment, store, createSupabase);
 }
 
 describe("createAuthSessionWiring — AUTH-LOCAL-014 production fail-closed", () => {
-  it("production with nothing configured: no session at all (no dev token, no binding, no legacy DB, no anonymous user)", async () => {
+  it("production with nothing configured: no session at all (no dev token, no binding, no legacy DB, no anonymous user) + a configuration error naming the variables only", async () => {
     const wiring = createAuthSessionWiring(env({ environment: "production", isDevBuild: false }), null);
     expect(wiring.source).toBeInstanceOf(NoSignInAuthSessionSource);
     expect(await wiring.source.getSession()).toBeNull();
     expect(wiring.devIdentitySwitcher).toBeNull();
+    expect(wiring.supabase).toBeNull();
+    expect(wiring.configurationError).toMatch(/EXPO_PUBLIC_SUPABASE_URL/);
+  });
+
+  it("AUTH-020: production with Supabase configured -> Supabase email OTP is the ONLY session source", () => {
+    const wiring = createAuthSessionWiring(env({ environment: "production", isDevBuild: false, supabase: SUPABASE }), null);
+    expect(wiring.supabase).not.toBeNull();
+    expect(wiring.source).toBe(wiring.supabase);
+    expect(wiring.devIdentitySwitcher).toBeNull();
+    expect(wiring.configurationError).toBeNull();
+  });
+
+  it("AUTH-020: production still refuses a dev token even when Supabase is configured", () => {
+    expect(() => createAuthSessionWiring(env({ environment: "production", devJwt: TOKEN_A, supabase: SUPABASE }), null)).toThrow(/production/);
+  });
+
+  it("an unsafe Supabase key (secret / service_role) is a configuration error, never a session source", () => {
+    const wiring = createAuthSessionWiring(env({ environment: "production", isDevBuild: false, supabase: { ...SUPABASE, publishableKey: "sb_secret_abc" } }), null);
+    expect(wiring.supabase).toBeNull();
+    expect(wiring.configurationError).not.toBeNull();
+    expect(wiring.configurationError).not.toContain("sb_secret_abc");
+  });
+
+  it("non-production: an explicit dev identity wins over a configured Supabase (precedence is documented in .env.example)", async () => {
+    const wiring = createAuthSessionWiring(env({ devJwt: TOKEN_A, supabase: SUPABASE }), null);
+    expect(wiring.supabase).toBeNull();
+    expect((await wiring.source.getSession())?.providerSubject).toBe("sub-a");
+  });
+
+  it("non-production without dev tokens uses Supabase when configured", () => {
+    const wiring = createAuthSessionWiring(env({ environment: "development", supabase: SUPABASE }), null);
+    expect(wiring.supabase).not.toBeNull();
+    expect(wiring.source).toBe(wiring.supabase);
   });
 
   it.each([
@@ -29,9 +82,10 @@ describe("createAuthSessionWiring — AUTH-LOCAL-014 production fail-closed", ()
     expect(() => createAuthSessionWiring(env({ environment: "production", isDevBuild: false, ...configured }), null)).toThrow(/production/);
   });
 
-  it("non-production without any token: no session (fail closed)", async () => {
+  it("non-production without any token or Supabase: no session (fail closed), no configuration error", async () => {
     const wiring = createAuthSessionWiring(env({ environment: "development" }), null);
     expect(await wiring.source.getSession()).toBeNull();
+    expect(wiring.configurationError).toBeNull();
   });
 
   it("non-production single EXPO_PUBLIC_DEV_JWT: one dev session (also in a release build), no selector", async () => {

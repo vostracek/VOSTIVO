@@ -8,8 +8,8 @@ import { openTestLocalDatabase } from "../local-database/testing/node-sqlite-dat
 import { LEGACY_DATABASE_NAME, athleteDatabaseName } from "../local-database/athlete-database";
 import type { AthleteDatabaseHandle } from "../local-database/athlete-database-handle";
 import type { AthleteRuntime } from "../plan/plan-runtime";
-import { RuntimeOwnerMismatchError } from "../workout/auth-token-provider";
-import { TransientSyncFailure, type WorkoutSyncApiClient } from "../workout/workout-sync-api-client";
+import { RuntimeOwnerMismatchError, SyncNotPermittedError } from "../workout/auth-token-provider";
+import { TransientSyncFailure, UnauthorizedSyncResponse, type WorkoutSyncApiClient } from "../workout/workout-sync-api-client";
 import { SUPABASE_PROVIDER, type AuthSession } from "./auth-session";
 import { createAthleteRuntimeOpener } from "./athlete-runtime-opener";
 import { IdentityBindingStore } from "./identity-binding-store";
@@ -59,12 +59,15 @@ const UNPLANNED: WorkoutPrescriptionV1 = {
 /** The server as the sync endpoint sees it: actor = token subject; whole-batch 409 on an ownerUserId mismatch; owner-scoped receipts. */
 class FakeServer implements WorkoutSyncApiClient {
   online = true;
+  /** Access tokens the auth server no longer accepts (revoked / expired session) — 401 on sync AND on `/me`. */
+  readonly revokedTokens = new Set<string>();
   readonly batches: { actorUserId: string; ownerUserId: string; commandIds: string[] }[] = [];
   readonly sessionOwners = new Map<string, string>();
   readonly receipts = new Set<string>();
 
   syncCommands(accessToken: string, request: SyncWorkoutCommandsRequest): Promise<SyncWorkoutCommandsResponse> {
     if (!this.online) return Promise.reject(new TransientSyncFailure("offline"));
+    if (this.revokedTokens.has(accessToken)) return Promise.reject(new UnauthorizedSyncResponse());
     const actor = USERS_BY_SUBJECT[readUnverifiedJwtSubject(accessToken) ?? ""];
     if (actor === undefined) return Promise.reject(new Error("401"));
     this.batches.push({ actorUserId: actor.userId, ownerUserId: request.ownerUserId, commandIds: request.commands.map((c) => c.commandId) });
@@ -137,6 +140,7 @@ class Device {
 
 class AppProcess {
   readonly source: ControllableSessionSource;
+  private readonly networkListeners = new Set<(isConnected: boolean) => void>();
   readonly controller: IdentityGateController<AthleteRuntime>;
   state: IdentityGateState<AthleteRuntime> = { status: "BOOTING" };
 
@@ -148,15 +152,28 @@ class AppProcess {
     const bindings = new IdentityBindingStore(device.secureStore);
     const fetchMe = (accessToken: string): Promise<VerifiedMeOutcome> => {
       if (!device.meOnline) return Promise.resolve({ kind: "UNREACHABLE" });
+      if (device.server.revokedTokens.has(accessToken)) return Promise.resolve({ kind: "UNAUTHORIZED" });
       const user = USERS_BY_SUBJECT[readUnverifiedJwtSubject(accessToken) ?? ""];
       return Promise.resolve(user === undefined ? { kind: "UNAUTHORIZED" } : { kind: "VERIFIED", ...user });
     };
     this.controller = new IdentityGateController<AthleteRuntime>({
       sessionSource: this.source,
       resolveIdentity: (current) => resolveIdentity(current, { fetchMe, bindings, now: () => new Date() }),
-      openRuntime: createAthleteRuntimeOpener({ sessionSource: this.source, apiBaseUrl: "http://api.invalid", openDatabase: device.openDatabase, workoutSyncApiClient: device.server }),
+      openRuntime: createAthleteRuntimeOpener({
+        sessionSource: this.source,
+        apiBaseUrl: "http://api.invalid",
+        openDatabase: device.openDatabase,
+        workoutSyncApiClient: device.server,
+        onSessionInvalid: () => void this.controller.reevaluate(),
+      }),
       onStateChange: (state) => {
         this.state = state;
+      },
+      connectivity: {
+        subscribe: (listener) => {
+          this.networkListeners.add(listener);
+          return () => this.networkListeners.delete(listener);
+        },
       },
     });
     this.controller.start();
@@ -164,6 +181,12 @@ class AppProcess {
 
   async settle(): Promise<void> {
     await this.controller.reevaluate();
+  }
+
+  /** The device's connectivity changes (expo-network in the app). */
+  async network(isConnected: boolean): Promise<void> {
+    for (const listener of [...this.networkListeners]) listener(isConnected);
+    await this.settle();
   }
 
   async switchTo(next: AuthSession | null): Promise<void> {
@@ -392,10 +415,109 @@ describe("Auth & Local Athlete Boundary V1 Slice B — cross-athlete local isola
     expect(resumed?.id).toBe(sessionId);
     expect(resumed?.exercises[0]?.sets).toHaveLength(1);
 
-    device.meOnline = true;
+    // AUTH-018: reachability alone never releases the outbox — only a fresh `/me` for the same owner does.
+    await relaunched.network(false);
     device.server.online = true;
+    const pendingBefore = device.outboxRows(A.userId);
+    await expect(relaunched.runtime.workoutApplicationService.syncPendingWorkoutCommands()).rejects.toBeInstanceOf(SyncNotPermittedError);
+    expect(device.server.batches).toEqual([]);
+    expect(device.outboxRows(A.userId)).toEqual(pendingBefore);
+
+    device.meOnline = true;
+    await relaunched.network(true);
+    expect(relaunched.state).toMatchObject({ status: "READY", verification: "ONLINE", identity: A });
     await relaunched.runtime.workoutApplicationService.syncPendingWorkoutCommands();
     expect(device.server.sessionOwners.get(sessionId)).toBe(A.userId);
+    expect(device.server.receipts.size).toBe(pendingBefore.length);
+  });
+
+  it("AUTH-013/014: the session is revoked mid-workout -> the SAME runtime keeps logging + finishes locally, sync pauses; same-owner re-auth syncs every command exactly once", async () => {
+    device.server.online = false;
+    const app = device.launch(session("sub-a", "1"));
+    await app.settle();
+    const runtimeA = app.runtime;
+    const sessionId = await startAndLogFirstSet(runtimeA);
+
+    // The auth server revokes A's session; the next sync gets 401 (no refresh possible) -> re-auth.
+    device.server.revokedTokens.add(session("sub-a", "1").accessToken);
+    device.server.online = true;
+    await expect(runtimeA.workoutApplicationService.syncPendingWorkoutCommands()).rejects.toThrow();
+    await app.settle();
+    expect(app.state).toMatchObject({ status: "READY", identity: A, auth: "REAUTH_REQUIRED" });
+    expect(app.runtime).toBe(runtimeA);
+    expect(device.openedFiles).toEqual([athleteDatabaseName(A.userId)]);
+
+    // Active Workout stays fully usable locally.
+    await runtimeA.workoutApplicationService.completeSet(
+      {
+        workoutSessionId: sessionId,
+        prescriptionExerciseId: "ex-bench",
+        exerciseRef: "bench-press",
+        exerciseDisplayName: "Bench Press",
+        exerciseOrder: 0,
+        prescriptionSetId: "set-2",
+        setOrder: 1,
+        actualReps: 8,
+        actualLoad: { kind: "EXTERNAL_WEIGHT", amountMilli: 60000, unit: "KG", basis: "TOTAL" },
+        setType: "WORKING",
+      },
+      90,
+    );
+    await runtimeA.workoutApplicationService.finishWorkoutSession(sessionId);
+    const pending = device.outboxRows(A.userId);
+    expect(pending.map((row) => row.command_type)).toEqual(["START_WORKOUT_SESSION_V1", "COMPLETE_SET_V1", "COMPLETE_SET_V1", "FINISH_WORKOUT_SESSION_V1"]);
+    await expect(runtimeA.workoutApplicationService.syncPendingWorkoutCommands()).rejects.toBeInstanceOf(SyncNotPermittedError);
+    expect(device.server.receipts.size).toBe(0);
+    expect(device.outboxRows(A.userId)).toEqual(pending);
+
+    // Same email signs in again: same subject, new token -> /me verifies the same userId -> sync resumes in place.
+    await app.switchTo(session("sub-a", "2"));
+    expect(app.state).toMatchObject({ status: "READY", identity: A, auth: "VALID", verification: "ONLINE" });
+    expect(app.runtime).toBe(runtimeA);
+    await runtimeA.workoutApplicationService.syncPendingWorkoutCommands();
+    expect(device.outboxRows(A.userId).every((row) => row.status === "SYNCED")).toBe(true);
+    expect(device.server.receipts.size).toBe(pending.length);
+    expect(device.server.batches.every((batch) => batch.actorUserId === A.userId && batch.ownerUserId === A.userId)).toBe(true);
+    expect(device.server.sessionOwners.get(sessionId)).toBe(A.userId);
+  });
+
+  it("AUTH-015/021: re-auth as ANOTHER athlete while A awaits re-auth disposes A first; B sees nothing of A; A's commands never leave as B; A returns intact", async () => {
+    device.server.online = false;
+    const app = device.launch(session("sub-a", "1"));
+    await app.settle();
+    const aSessionId = await startAndLogFirstSet(app.runtime);
+    const aPending = device.outboxRows(A.userId);
+    device.server.revokedTokens.add(session("sub-a", "1").accessToken);
+    device.server.online = true;
+    await expect(app.runtime.workoutApplicationService.syncPendingWorkoutCommands()).rejects.toThrow();
+    await app.settle();
+    expect(app.state).toMatchObject({ status: "READY", auth: "REAUTH_REQUIRED" });
+
+    await app.switchTo(session("sub-b"));
+    expect(app.runtime.ownerUserId).toBe(B.userId);
+    expect(device.openHandles).toEqual(new Set([athleteDatabaseName(B.userId)]));
+    expect(await app.runtime.workoutApplicationService.getActiveWorkoutSession()).toBeUndefined();
+    expect(await app.runtime.workoutApplicationService.getPreviousExercisePerformance("bench-press", aSessionId)).toBeUndefined();
+    await app.runtime.workoutApplicationService.syncPendingWorkoutCommands();
+    expect(device.server.receipts.size).toBe(0);
+
+    await app.switchTo(session("sub-a", "2"));
+    expect((await app.runtime.workoutApplicationService.getActiveWorkoutSession())?.id).toBe(aSessionId);
+    expect(device.outboxRows(A.userId).map((row) => row.command_id)).toEqual(aPending.map((row) => row.command_id));
+    await app.runtime.workoutApplicationService.syncPendingWorkoutCommands();
+    expect(device.server.batches.every((batch) => batch.actorUserId === batch.ownerUserId)).toBe(true);
+    expect(device.server.sessionOwners.get(aSessionId)).toBe(A.userId);
+  });
+
+  it("AUTH-019: the sync endpoint being unreachable is a retry, never an invalid session (no re-auth, runtime unchanged)", async () => {
+    const app = device.launch(session("sub-a"));
+    await app.settle();
+    device.server.online = false;
+    await startAndLogFirstSet(app.runtime);
+    const result = await app.runtime.workoutApplicationService.syncPendingWorkoutCommands();
+    expect(result.retried).toBeGreaterThan(0);
+    await app.settle();
+    expect(app.state).toMatchObject({ status: "READY", auth: "VALID", verification: "ONLINE" });
   });
 
   it("GATE-5 on a device: an unknown subject offline opens NO database (no Today/Resume/PREV possible)", async () => {

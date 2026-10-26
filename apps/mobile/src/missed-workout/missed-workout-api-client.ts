@@ -1,5 +1,6 @@
 import type { MissedWorkoutApplyRequestV1, MissedWorkoutApplyResponseV1, MissedWorkoutPreviewResponseV1 } from "@vostivo/contracts";
 import type { AuthTokenProvider } from "../workout/auth-token-provider";
+import { authorizedFetch } from "../workout/authorized-request";
 
 /**
  * Missed Workout / Schedule Adaptation V1 — Slice D: the only place the
@@ -40,10 +41,9 @@ export class FetchMissedWorkoutApiClient implements MissedWorkoutApiClient {
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
-    const accessToken = await this.authTokenProvider.getAccessToken();
-    const response = await fetch(`${this.apiBaseUrl}${path}`, {
+    const response = await authorizedFetch(this.authTokenProvider, `${this.apiBaseUrl}${path}`, {
       method: "POST",
-      headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
     if (!response.ok) throw await toFailure(response);

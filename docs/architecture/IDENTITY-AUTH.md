@@ -187,22 +187,37 @@ evidence captured.
 }
 ```
 
-## Mobile auth foundation — deliberately minimal
+## Mobile sign-in and session lifecycle (Auth Slice C)
 
-`apps/mobile/src/infrastructure/supabase-config.ts` establishes only a
-client-safe config boundary: it reads `EXPO_PUBLIC_SUPABASE_URL` /
-`EXPO_PUBLIC_SUPABASE_ANON_KEY` — the `EXPO_PUBLIC_` prefix is what Expo's
-own build tooling uses to decide which variables are safe to bundle into
-client JS; everything else is stripped at build time. That mechanism, not
-convention, is what keeps a service-role key out of the mobile bundle.
+Supabase is the identity provider only — the app never reads or writes data
+through Supabase (the project's Data API is disabled); athlete data goes
+exclusively through the Vostivo API, authenticated by the Supabase access
+token and verified here via JWKS (no API-side code change was needed for
+real cloud tokens: set `SUPABASE_URL=https://<ref>.supabase.co` and leave
+`LOCAL_JWKS_PATH` unset; the project must use asymmetric signing keys).
 
-**Deliberately deferred**: the actual `@supabase/supabase-js` client, its
-session-storage adapter, and any sign-in flow. Designing session
-persistence (SecureStore has per-item size limits that don't cleanly fit
-a full Supabase session blob, so a real implementation needs a considered
-hybrid strategy) without a real project or a real sign-in UX to test
-against would be exactly the kind of speculative architecture this task's
-scope excludes. No `@supabase/supabase-js` dependency was added.
+- Config (`apps/mobile/src/infrastructure/supabase-config.ts`):
+  `EXPO_PUBLIC_SUPABASE_URL` + `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (the
+  `EXPO_PUBLIC_` prefix is what Expo bundles; everything else is stripped).
+  A secret (`sb_secret_...`) or service_role key is refused at startup; the
+  old `EXPO_PUBLIC_SUPABASE_ANON_KEY` is gone.
+- Login: email + 6-digit OTP only (`apps/mobile/src/auth/`).
+- Session persistence: chunked, manifest-switched expo-secure-store
+  storage — never AsyncStorage; corrupt/incomplete data fails closed.
+- `providerSubject` (Supabase `user.id`) is only a lookup key; the internal
+  `userId` comes from an authenticated `GET /api/v1/me` (IdentityGate).
+- 401: one single-flight refresh, one retry, then re-auth. An invalid
+  session never closes the open owner's runtime (an Active Workout keeps
+  working locally; sync pauses until the same owner re-authenticates).
+- Sync runs only while the owner is verified online with a valid session.
+- Same-owner re-auth (REAUTH_REQUIRED -> VALID) re-runs Today's load; a
+  request made while no session exists reports "Sign in again to load your
+  latest training." — never the owner-mismatch error. Human acceptance
+  passed 2026-10-26 (spec §27.8).
+
+Full design, states and evidence:
+`docs/domain/AUTH-LOCAL-ATHLETE-BOUNDARY-V1.md` §26 (Slice B) and §27
+(Slice C).
 
 ## Future authorization relationship
 

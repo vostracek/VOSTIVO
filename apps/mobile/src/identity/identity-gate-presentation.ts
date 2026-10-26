@@ -25,14 +25,16 @@ export function identityGateCopy(state: Exclude<IdentityGateState<OwnedRuntime>,
         body: "Nothing has been deleted. Your synced workouts are safe on the server.",
         retryLabel: "Try again",
       };
+    case "SIGNED_OUT":
+      return { title: "You're not signed in", body: isDevBuild ? "No sign-in is configured (EXPO_PUBLIC_SUPABASE_* or EXPO_PUBLIC_DEV_JWT / EXPO_PUBLIC_DEV_JWTS)." : "Sign in to continue.", retryLabel: null };
+    case "REAUTH_REQUIRED":
+      return { title: "Your session has ended", body: isDevBuild ? "The dev token was refused — mint a new one (auth:local:mint-jwt)." : "Please sign in again.", retryLabel: "Try again" };
     case "IDENTITY_ERROR":
       switch (state.reason) {
-        case "NO_SESSION":
-          return { title: "You're not signed in", body: isDevBuild ? "No dev identity is configured (EXPO_PUBLIC_DEV_JWT / EXPO_PUBLIC_DEV_JWTS)." : "Sign-in isn't available in this build yet.", retryLabel: null };
-        case "UNAUTHORIZED":
-          return { title: "Your session has ended", body: isDevBuild ? "The dev token was refused — mint a new one (auth:local:mint-jwt)." : "Please sign in again.", retryLabel: "Try again" };
         case "BINDING_CONFLICT":
           return { title: "This account can't be opened here", body: "The account didn't match the one verified on this device before. Nothing has been changed.", retryLabel: null };
+        case "SESSION_STORAGE_UNAVAILABLE":
+          return { title: "Couldn't read your sign-in", body: "This device's secure storage isn't available right now. Nothing has been deleted.", retryLabel: "Try again" };
         case "INVALID_RESPONSE":
         case "UNEXPECTED":
           return { title: "Couldn't verify your account", body: "Nothing has been changed. Try again in a moment.", retryLabel: "Try again" };

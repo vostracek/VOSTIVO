@@ -5,7 +5,7 @@ import type { AthleteDatabaseHandle } from "../local-database/athlete-database-h
 import type { OpenAthleteDatabaseResult } from "../local-database/athlete-database";
 import type { AuthSession, AuthSessionSource } from "./auth-session";
 import type { VerifiedIdentity } from "./identity-binding-store";
-import type { OpenRuntimeResult } from "./identity-gate-controller";
+import type { OpenRuntimeResult, OwnerVerification } from "./identity-gate-controller";
 import { OwnerBoundAuthTokenProvider } from "./owner-bound-auth-token-provider";
 
 export interface AthleteRuntimeOpenerDeps {
@@ -15,23 +15,29 @@ export interface AthleteRuntimeOpenerDeps {
   openDatabase(userId: string): Promise<OpenAthleteDatabaseResult<AthleteDatabaseHandle>>;
   readonly workoutSyncApiClient?: WorkoutSyncApiClient;
   readonly syncLogger?: WorkoutSyncLogger;
+  /** Auth Slice C: a request found this owner's session unusable — the gate re-evaluates (sync paused, re-auth asked; the runtime stays). */
+  readonly onSessionInvalid?: () => void;
 }
 
 /**
  * The IdentityGate's `openRuntime` step: open the verified owner's database,
  * then build the runtime bound to that owner — its `ownerUserId`, its
  * database handle, and a token provider bound to the session's provider
- * identity. Shared by the app and the isolation tests.
+ * identity. Outbox sync starts permitted only for an owner verified ONLINE
+ * just now (Slice C). Shared by the app and the isolation tests.
  */
-export function createAthleteRuntimeOpener(deps: AthleteRuntimeOpenerDeps): (identity: VerifiedIdentity, session: AuthSession) => Promise<OpenRuntimeResult<AthleteRuntime>> {
-  return async (identity, session) => {
+export function createAthleteRuntimeOpener(
+  deps: AthleteRuntimeOpenerDeps,
+): (identity: VerifiedIdentity, session: AuthSession, verification: OwnerVerification) => Promise<OpenRuntimeResult<AthleteRuntime>> {
+  return async (identity, session, verification) => {
     const opened = await deps.openDatabase(identity.userId);
     if (opened.kind === "LOCAL_DATA_UNAVAILABLE") return opened;
     const runtime = createAthleteRuntime({
       ownerUserId: identity.userId,
       database: opened.handle,
-      authTokenProvider: new OwnerBoundAuthTokenProvider(deps.sessionSource, { provider: session.provider, providerSubject: session.providerSubject }),
+      authTokenProvider: new OwnerBoundAuthTokenProvider(deps.sessionSource, { provider: session.provider, providerSubject: session.providerSubject }, deps.onSessionInvalid),
       apiBaseUrl: deps.apiBaseUrl,
+      syncPermitted: verification === "ONLINE",
       workoutSyncApiClient: deps.workoutSyncApiClient,
       syncLogger: deps.syncLogger,
     });

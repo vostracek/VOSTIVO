@@ -72,8 +72,9 @@ apps/worker   Node process, async jobs / future Training Intelligence
 PostgreSQL + Drizzle           server-canonical current state + durable history
 local SQLite + Drizzle         on-device, SQLCipher-encrypted (apps/mobile)
 SQLCipher + expo-secure-store  local DB encryption; key lives in SecureStore, never the DB itself
-Supabase Auth                  identity provider — JWT verification + internal identity
-                                resolution implemented; sign-in UX/screens not yet built
+Supabase Auth                  identity provider ONLY (Data API disabled) — email + 6-digit
+                                OTP sign-in, SecureStore-chunked session, JWKS verification
+                                (Auth Slice C; human acceptance PASSED 2026-10-26)
 domain-aware outbox/cursor sync mobile <-> API (protocol not yet implemented)
 pure deterministic Training Engine  packages/training-engine — no framework/infra dependency
 ```
@@ -1579,7 +1580,39 @@ Auth & Local Athlete Boundary V1: Phase 0 COMPLETE; decisions D-1..D-9
                                   vostivo.db quarantined; __DEV__-only alias
                                   switcher. Human acceptance A->B->A +
                                   offline relaunch performed (spec §26.9).
-  - Slice C — Supabase Auth + Session Lifecycle: not started.
+  - Slice C — Supabase Auth + Session Lifecycle: CLOSED / TECH-LEAD
+                                  APPROVED 2026-10-26 (human acceptance A-F
+                                  + R passed, spec §27.8). Two UX fixes from
+                                  acceptance D: same-owner re-auth reloads
+                                  Today (AUTH-024); a load with no session
+                                  shows "Sign in again to load your latest
+                                  training." (SessionInvalidError, AUTH-023),
+                                  never the owner-mismatch text. The
+                                  acceptance-only Supabase JWT expiry (300 s)
+                                  was restored to 3600 s on 2026-10-26.
+                                  Follow-ups (non-blocking):
+                                  see spec §27.9.
+                                  SUPABASE IS THE IDENTITY PROVIDER ONLY
+                                  (Data API disabled, no PostgREST use; one
+                                  `createClient` in `src/auth/supabase-auth-
+                                  client.ts`). Email + 6-digit OTP only;
+                                  session in chunked, manifest-switched
+                                  SecureStore (no AsyncStorage, fails
+                                  closed). Env: mobile `EXPO_PUBLIC_SUPABASE_
+                                  URL` + `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_
+                                  KEY` (ANON_KEY removed; secret keys
+                                  refused); API `SUPABASE_URL`, no
+                                  `LOCAL_JWKS_PATH` for cloud tokens (no API
+                                  code change). 401 = one single-flight
+                                  refresh + one retry. Sync only while the
+                                  owner is verified ONLINE with a VALID
+                                  session; an invalid session keeps the
+                                  owner's runtime (Active Workout usable,
+                                  sync paused, "Sign in again to sync");
+                                  same-owner re-auth resumes sync, other
+                                  owner = Slice B transition; offline-bound
+                                  boot re-verifies `/me` on network regain /
+                                  foreground before syncing. Spec §27.
   - Slice D — Sign-out + Minimal Account: not started.
   - Slice E — Human Acceptance + Final Closure: not started.
 
@@ -1776,9 +1809,11 @@ Current blockers:         None.
 Current known tech debt:  ESLint major-version split (web/mobile on 9.x);
                            local SQLite migrations use a hand-rolled runner
                            instead of drizzle-kit's generated bundle
-                           (unverified Metro/babel step); mobile Supabase
-                           client/session-storage integration deliberately
-                           deferred (no real project, no sign-in UX yet);
+                           (unverified Metro/babel step); Auth Slice C
+                           acceptance follow-ups (spec §27.9: decimal comma
+                           in load input, no bounded timeout on offline
+                           boot, re-auth pill overlap, one unreproduced
+                           Fabric SIGSEGV);
                            `apps/mobile` requires `metro.config.js`'s
                            `unstable_enableSymlinks: true` for pnpm's
                            nested workspace symlinks (expo-doctor flags

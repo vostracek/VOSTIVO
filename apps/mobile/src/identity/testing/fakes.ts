@@ -4,14 +4,32 @@ import type { SecureValueStore } from "../secure-value-store";
 export class InMemorySecureValueStore implements SecureValueStore {
   readonly values = new Map<string, string>();
   readonly writes: string[] = [];
+  readonly deletes: string[] = [];
+  /** Fault injection: the next `set` calls succeed this many times, then every further `set` throws (simulates a crash mid-write). */
+  failSetsAfter: number | null = null;
+  /** Fault injection: every read/write throws (SecureStore unavailable). */
+  unavailable = false;
 
   get(key: string): Promise<string | null> {
+    if (this.unavailable) return Promise.reject(new Error("SecureStore unavailable"));
     return Promise.resolve(this.values.get(key) ?? null);
   }
 
   set(key: string, value: string): Promise<void> {
+    if (this.unavailable) return Promise.reject(new Error("SecureStore unavailable"));
+    if (this.failSetsAfter !== null) {
+      if (this.failSetsAfter <= 0) return Promise.reject(new Error("simulated crash during write"));
+      this.failSetsAfter -= 1;
+    }
     this.writes.push(key);
     this.values.set(key, value);
+    return Promise.resolve();
+  }
+
+  delete(key: string): Promise<void> {
+    if (this.unavailable) return Promise.reject(new Error("SecureStore unavailable"));
+    this.deletes.push(key);
+    this.values.delete(key);
     return Promise.resolve();
   }
 }

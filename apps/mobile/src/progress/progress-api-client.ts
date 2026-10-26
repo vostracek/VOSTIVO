@@ -1,5 +1,6 @@
 import type { ExerciseHistoryPageV1, ProgressOverviewV1, WorkoutHistoryDetailV1, WorkoutHistoryPageV1 } from "@vostivo/contracts";
 import type { AuthTokenProvider } from "../workout/auth-token-provider";
+import { authorizedFetch } from "../workout/authorized-request";
 
 /**
  * Progress & Feedback V1 — Slice B: the only place Progress HTTP calls
@@ -50,8 +51,7 @@ export class FetchProgressApiClient implements ProgressApiClient {
   }
 
   private async getJson<T>(path: string): Promise<T> {
-    const accessToken = await this.authTokenProvider.getAccessToken();
-    const response = await fetch(`${this.apiBaseUrl}${path}`, { headers: { authorization: `Bearer ${accessToken}` } });
+    const response = await authorizedFetch(this.authTokenProvider, `${this.apiBaseUrl}${path}`);
     if (!response.ok) throw new ProgressApiFailure(response.status);
     return (await response.json()) as T;
   }

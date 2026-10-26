@@ -1,9 +1,12 @@
-import type { SyncOutcome, SyncWorkoutCommandsRequest } from "@vostivo/contracts";
-import { RuntimeOwnerMismatchError, type AuthTokenProvider } from "./auth-token-provider";
+import type { SyncOutcome, SyncWorkoutCommandsRequest, SyncWorkoutCommandsResponse } from "@vostivo/contracts";
+import { AuthServiceUnavailableError, SessionInvalidError, SyncPausedError, type AuthTokenProvider } from "./auth-token-provider";
+import { sendWithAuthRecovery } from "./authorized-request";
 import type { OutboxPort } from "./outbox-port";
-import { TransientSyncFailure, type WorkoutSyncApiClient } from "./workout-sync-api-client";
+import { TransientSyncFailure, UnauthorizedSyncResponse, type WorkoutSyncApiClient } from "./workout-sync-api-client";
 
 export const DEFAULT_BATCH_SIZE = 25;
+
+const UNAUTHORIZED: unique symbol = Symbol("unauthorized");
 
 export interface SyncPendingCommandsResult {
   readonly attempted: number;
@@ -76,14 +79,14 @@ export class SyncEngine {
     };
     if (pending.length === 0) return result;
 
-    // The token is obtained BEFORE any outbox row is touched: when the
-    // current session is not this runtime's owner (Slice B), nothing is
-    // sent and nothing is marked — no attempt counted, no backoff.
-    let accessToken: string;
+    // The token is obtained BEFORE anything is marked SYNCING: a paused
+    // runtime (wrong owner — Slice B; not verified online or re-auth
+    // pending — Slice C) leaves the outbox exactly as it was — no attempt
+    // counted, no backoff.
     try {
-      accessToken = await this.authTokenProvider.getAccessToken();
+      await this.authTokenProvider.getAccessToken();
     } catch (error) {
-      if (error instanceof RuntimeOwnerMismatchError) throw error;
+      if (error instanceof SyncPausedError) throw error;
       // Cannot authenticate right now (JWT refresh failed, deferred auth
       // wiring, offline) — everything stays retryable (spec section
       // 32/33), never treated as a permanent rejection.
@@ -98,11 +101,23 @@ export class SyncEngine {
 
     const request: SyncWorkoutCommandsRequest = { ownerUserId: this.ownerUserId, commands: pending.map((record) => record.payload) };
 
-    let response;
+    let response: SyncWorkoutCommandsResponse;
     try {
-      response = await this.apiClient.syncCommands(accessToken, request);
+      // Auth Slice C: one refresh + one retry on 401, never a loop. The
+      // replayed batch is idempotent server-side (owner-scoped receipts).
+      const sent = await sendWithAuthRecovery(
+        this.authTokenProvider,
+        (accessToken): Promise<SyncWorkoutCommandsResponse | typeof UNAUTHORIZED> =>
+          this.apiClient.syncCommands(accessToken, request).catch((error: unknown) => {
+            if (error instanceof UnauthorizedSyncResponse) return UNAUTHORIZED;
+            throw error;
+          }),
+        (result) => result === UNAUTHORIZED,
+      );
+      if (sent.result === UNAUTHORIZED) throw new SessionInvalidError();
+      response = sent.result;
     } catch (error) {
-      if (error instanceof RuntimeOwnerMismatchError) {
+      if (error instanceof SyncPausedError) {
         // The server refused the whole batch (409 SYNC_OWNER_MISMATCH) —
         // nothing was processed. Put the rows back for their real owner;
         // the coordinator schedules no retry for this.
@@ -113,7 +128,8 @@ export class SyncEngine {
       // leave everything retryable (spec section 33).
       for (const record of pending) await this.outbox.markRetry(record.commandId);
       result.retried = pending.length;
-      if (!(error instanceof TransientSyncFailure)) {
+      // The auth service being unreachable while refreshing is offline, not an invalid session (AUTH-019).
+      if (!(error instanceof TransientSyncFailure) && !(error instanceof AuthServiceUnavailableError)) {
         // A genuinely unexpected (non-network) error — still leaves the
         // outbox safely retryable above, but surface it rather than
         // silently swallowing a real bug.

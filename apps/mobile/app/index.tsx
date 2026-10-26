@@ -4,7 +4,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { GuidedLoadingSetupAttentionV1, PendingProgressionApplicationV1, PlanSessionSummaryV1 } from "@vostivo/contracts";
 import { logTechnicalFailure } from "../src/plan/plan-runtime";
-import { useAthleteRuntime } from "../src/identity/athlete-runtime-context";
+import { useAthleteRuntime, useAuthRecoveryCount } from "../src/identity/athlete-runtime-context";
 import { deriveTodayHeroState, type TodayOverviewState } from "../src/plan/today-derivation";
 import { completedTodayView } from "../src/plan/today-completed-presentation";
 import { formatLoad } from "../src/workout/format-target";
@@ -67,6 +67,7 @@ export default function TodayScreen(): React.JSX.Element {
   const [guidedSetupState, setGuidedSetupState] = useState<GuidedLoadingSetupState>({ status: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
   const reload = useCallback(() => setReloadToken((token) => token + 1), []);
+  const authRecoveries = useAuthRecoveryCount();
   // Available-Time Slice D: which planned workout the sheet is open for (null = closed),
   // plus an opening counter so every opening mounts a fresh flow with NO time preselected.
   const [adjustTarget, setAdjustTarget] = useState<{ readonly plannedWorkoutId: string; readonly opening: number } | null>(null);
@@ -154,7 +155,10 @@ export default function TodayScreen(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [guidedLoadingSetupApiClient, planApplicationService, progressionApiClient, reloadToken, missedController]);
+    // `authRecoveries` (Auth Slice C): a load that ran while the session was
+    // gone (re-auth) failed closed; re-run once the same owner signed in again.
+    // Sign-in is an overlay, not a navigation, so the focus reload never fires.
+  }, [guidedLoadingSetupApiClient, planApplicationService, progressionApiClient, reloadToken, missedController, authRecoveries]);
 
   // Re-check on every focus (returning from Active Workout, or from Plan)
   // so a session started/finished elsewhere is reflected immediately —

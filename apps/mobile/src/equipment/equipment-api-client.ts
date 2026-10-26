@@ -6,6 +6,7 @@ import type {
   EquipmentAdaptationPreviewResponseV1,
 } from "@vostivo/contracts";
 import type { AuthTokenProvider } from "../workout/auth-token-provider";
+import { authorizedFetch } from "../workout/authorized-request";
 
 /**
  * Temporary Equipment / Gym Adaptation V1 — Slice D: the only place the
@@ -58,11 +59,9 @@ export class FetchEquipmentApiClient implements EquipmentApiClient {
   }
 
   private async request<T>(method: "GET" | "POST", path: string, body: unknown): Promise<T> {
-    const accessToken = await this.authTokenProvider.getAccessToken();
-    const response = await fetch(`${this.apiBaseUrl}${path}`, {
+    const response = await authorizedFetch(this.authTokenProvider, `${this.apiBaseUrl}${path}`, {
       method,
-      headers: body === undefined ? { authorization: `Bearer ${accessToken}` } : { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
     });
     if (!response.ok) throw await toFailure(response);
     return (await response.json()) as T;

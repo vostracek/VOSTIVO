@@ -1,5 +1,6 @@
 import type { MeResponse, UpdateTrainingTimeZoneRequestV1 } from "@vostivo/contracts";
 import type { AuthTokenProvider } from "../workout/auth-token-provider";
+import { authorizedFetch } from "../workout/authorized-request";
 
 /** `GET /api/v1/me` + the one profile write mobile needs (Missed Workout V1 Slice D's training time zone bootstrap). */
 export interface MeApiClient {
@@ -29,11 +30,9 @@ export class FetchMeApiClient implements MeApiClient {
   }
 
   private async request<T>(method: "GET" | "PUT", path: string, body?: unknown): Promise<T> {
-    const accessToken = await this.authTokenProvider.getAccessToken();
-    const response = await fetch(`${this.apiBaseUrl}${path}`, {
+    const response = await authorizedFetch(this.authTokenProvider, `${this.apiBaseUrl}${path}`, {
       method,
-      headers: { authorization: `Bearer ${accessToken}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
     });
     if (!response.ok) throw new MeApiRequestFailure(response.status);
     return (await response.json()) as T;

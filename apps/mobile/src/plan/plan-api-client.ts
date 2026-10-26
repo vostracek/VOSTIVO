@@ -1,12 +1,12 @@
 import type { AvailableTimePreviewRequestV1, AvailableTimePreviewResponseV1, PlanOverviewV1, WorkoutPreviewV1 } from "@vostivo/contracts";
 import type { AuthTokenProvider } from "../workout/auth-token-provider";
+import { authorizedFetch } from "../workout/authorized-request";
 
 /**
  * The one place Plan HTTP calls happen (spec section 26) — screens never
  * call `fetch` directly. Reuses the same `AuthTokenProvider` boundary as
- * the workout sync client; production Supabase mobile sign-in is still
- * deferred (see auth-token-provider.ts) — there is no production
- * authentication bypass here either.
+ * the workout sync client, and the same 401 refresh-once policy
+ * (`authorizedFetch`) — there is no authentication bypass here.
  */
 export interface PlanApiClient {
   getCurrentPlan(): Promise<PlanOverviewV1>;
@@ -44,10 +44,9 @@ export class FetchPlanApiClient implements PlanApiClient {
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {
-    const accessToken = await this.authTokenProvider.getAccessToken();
-    const response = await fetch(`${this.apiBaseUrl}${path}`, {
+    const response = await authorizedFetch(this.authTokenProvider, `${this.apiBaseUrl}${path}`, {
       method: "POST",
-      headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
     if (!response.ok) {
@@ -57,10 +56,7 @@ export class FetchPlanApiClient implements PlanApiClient {
   }
 
   private async getJson<T>(path: string): Promise<T> {
-    const accessToken = await this.authTokenProvider.getAccessToken();
-    const response = await fetch(`${this.apiBaseUrl}${path}`, {
-      headers: { authorization: `Bearer ${accessToken}` },
-    });
+    const response = await authorizedFetch(this.authTokenProvider, `${this.apiBaseUrl}${path}`);
     if (!response.ok) {
       throw new PlanApiRequestFailure(`Plan API request failed: ${response.status}`, response.status);
     }

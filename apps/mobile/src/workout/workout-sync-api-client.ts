@@ -15,6 +15,14 @@ export interface WorkoutSyncApiClient {
 
 export class TransientSyncFailure extends Error {}
 
+/** 401 — the server refused this token. `SyncEngine` runs the refresh-once policy (`sendWithAuthRecovery`). */
+export class UnauthorizedSyncResponse extends Error {
+  constructor() {
+    super("Sync request was refused: 401");
+    this.name = "UnauthorizedSyncResponse";
+  }
+}
+
 export class FetchWorkoutSyncApiClient implements WorkoutSyncApiClient {
   constructor(private readonly apiBaseUrl: string) {}
 
@@ -40,6 +48,9 @@ export class FetchWorkoutSyncApiClient implements WorkoutSyncApiClient {
 
     if (response.status >= 500) {
       throw new TransientSyncFailure(`Server error: ${response.status}`);
+    }
+    if (response.status === 401) {
+      throw new UnauthorizedSyncResponse();
     }
     if (response.status === 409 && (await readErrorMessage(response)) === SYNC_OWNER_MISMATCH) {
       throw new RuntimeOwnerMismatchError();

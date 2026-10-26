@@ -6,6 +6,7 @@ import type {
   ProgressionApplicationProposalResponseV1,
 } from "@vostivo/contracts";
 import type { AuthTokenProvider } from "../workout/auth-token-provider";
+import { authorizedFetch } from "../workout/authorized-request";
 
 /**
  * Progression Application V1 — Slice E — the one place progression HTTP
@@ -62,18 +63,14 @@ export class FetchProgressionApiClient implements ProgressionApiClient {
   }
 
   private async getJson<T>(path: string): Promise<T> {
-    const accessToken = await this.authTokenProvider.getAccessToken();
-    const response = await fetch(`${this.apiBaseUrl}${path}`, {
-      headers: { authorization: `Bearer ${accessToken}` },
-    });
+    const response = await authorizedFetch(this.authTokenProvider, `${this.apiBaseUrl}${path}`);
     return this.parseResponse<T>(response);
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {
-    const accessToken = await this.authTokenProvider.getAccessToken();
-    const response = await fetch(`${this.apiBaseUrl}${path}`, {
+    const response = await authorizedFetch(this.authTokenProvider, `${this.apiBaseUrl}${path}`, {
       method: "POST",
-      headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
     return this.parseResponse<T>(response);

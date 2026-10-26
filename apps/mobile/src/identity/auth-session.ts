@@ -1,8 +1,11 @@
+import type { UnauthorizedRecovery } from "../workout/auth-token-provider";
+
 /**
  * Auth & Local Athlete Boundary V1 Slice B — the minimum session
- * abstraction the IdentityGate needs. Slice C replaces the dev source with
- * a Supabase-backed one; nothing above this file knows how a session is
- * obtained, and no product screen ever sees a token.
+ * abstraction the IdentityGate needs. Slice C adds the Supabase-backed
+ * source (`src/auth/supabase-auth-session-source.ts`); nothing above this
+ * file knows how a session is obtained, and no product screen ever sees a
+ * token.
  *
  * `provider` + `providerSubject` are only a LOOKUP KEY into a previously
  * verified identity binding (`identity-binding-store.ts`) — reading them
@@ -16,10 +19,34 @@ export interface AuthSession {
 }
 
 export interface AuthSessionSource {
-  /** The current session, or `null` when there is none (signed out / no production sign-in yet). */
+  /**
+   * The current session, or `null` when there is none. May throw
+   * `SessionStorageUnavailableError` when the secure session store cannot be
+   * read — never treated as "signed out", and never a reason to delete data.
+   */
   getSession(): Promise<AuthSession | null>;
   /** Fires whenever the session may have changed (new token, other identity, signed out). */
   subscribe(onChange: () => void): () => void;
+  /**
+   * Auth Slice C — why `getSession()` is `null`: the athlete signed out, or
+   * the session stopped being valid (refresh refused / revoked). Sources
+   * without real sign-in omit it (= `SIGNED_OUT`).
+   */
+  sessionLoss?(): SessionLoss;
+  /** Single-flight recovery after a request with `rejectedAccessToken` got 401 (see `AuthTokenProvider`). */
+  recoverFromUnauthorized?(rejectedAccessToken: string): Promise<UnauthorizedRecovery>;
+  /** The session keeps being refused even after a refresh: drop it locally as `SESSION_INVALID`. */
+  markSessionInvalid?(): Promise<void>;
+}
+
+export type SessionLoss = "SIGNED_OUT" | "SESSION_INVALID";
+
+/** The secure session store could not be read or written — a typed storage failure, never "signed out". */
+export class SessionStorageUnavailableError extends Error {
+  constructor() {
+    super("The secure session store is unavailable");
+    this.name = "SessionStorageUnavailableError";
+  }
 }
 
 /** The server's identity provider name (`AuthIdentity.provider`); dev tokens are verified through the same path. */
@@ -31,9 +58,10 @@ export function isSameSessionIdentity(a: Pick<AuthSession, "provider" | "provide
 }
 
 /**
- * Production wiring until Slice C: there is no sign-in yet, so there is
- * never a session — the IdentityGate fails closed. Never a fallback to a
- * dev token, a cached binding, the legacy database or an anonymous user.
+ * No configured sign-in (a non-production build without Supabase config or
+ * dev tokens): there is never a session — the IdentityGate fails closed.
+ * Never a fallback to a dev token, a cached binding, the legacy database or
+ * an anonymous user.
  */
 export class NoSignInAuthSessionSource implements AuthSessionSource {
   getSession(): Promise<AuthSession | null> {

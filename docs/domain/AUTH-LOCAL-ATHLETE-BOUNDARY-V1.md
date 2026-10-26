@@ -5,8 +5,10 @@ APPROVED by tech lead (2026-10-19, §23). Slices renumbered (§21). Slice A —
 Server Receipt Ownership Hardening: CLOSED / tech-lead approved
 (2026-10-19, §24; repo-wide idempotency closure audit §25). Slice B — Local
 Athlete Storage + IdentityGate: CLOSED / tech-lead approved
-(2026-10-20, §26). Slices C–E:
-not started.
+(2026-10-20, §26). Slice C — Supabase Auth + Session Lifecycle:
+CLOSED / tech-lead approved (2026-10-26, §27; human acceptance A-F + R
+passed).
+Slices D–E: not started.
 
 **Answers:** *"Whose workout is this phone showing, and who is it syncing
 as?"* — always exactly the authenticated athlete's, and nothing else.
@@ -483,7 +485,8 @@ CLOSED / tech-lead approved (2026-10-20) — see §26.
 - Tests: AUTH-LOCAL-001/002/005/007/009/011/012/013/014.
 - Human acceptance: A → B → A via the dev identity selector, offline relaunch.
 
-**Slice C — Supabase Auth + Session Lifecycle.**
+**Slice C — Supabase Auth + Session Lifecycle.** CLOSED / tech-lead
+approved (2026-10-26; human acceptance A-F + R passed) — see §27.
 - Job: a real athlete can sign in, stay signed in, and recover from expiry.
 - Scope: `@supabase/supabase-js`, SecureStore-backed session adapter (D-3),
   refresh + single-flight 401 handling, REAUTH_REQUIRED, email OTP sign-in
@@ -865,3 +868,209 @@ Gate screen is a non-navigator root before READY; a server 409 bumps
 `EXPO_PUBLIC_*`; legacy data is invisible (D-6); no re-verification on
 network regain after offline READY; binding store capped at 8; the probe
 treats any non-empty plaintext file as HAS_CONTENT (→ key path).
+
+---
+
+## 27. Slice C — Supabase Auth + Session Lifecycle: evidence (2026-10-21) — human acceptance PASSED — CLOSED / tech-lead approved (2026-10-26)
+
+Slice B's boundary is unchanged: provider subject is only a lookup key, the
+owner is trusted only after an authenticated `GET /api/v1/me`, one SQLCipher
+DB + key per `userId`, runtime disposed before another owner opens. Slice C
+only replaces "where the session comes from" and adds its lifecycle.
+
+### 27.1 Provider role
+
+Supabase (dev project `vostivo-dev`, Frankfurt) is the IDENTITY PROVIDER
+ONLY. The project's Data API is intentionally disabled; the app has no
+PostgREST/Storage/Realtime/Functions use (structural test in
+`no-hidden-runtime-path.test.ts`); athlete data goes only through the
+Vostivo API. The product database stays the Vostivo Postgres.
+
+V1 login = email + 6-digit OTP only: `signInWithOtp({email, options:
+{shouldCreateUser: true}})` -> `verifyOtp({email, token, type: "email"})`.
+No password, magic link, social or anonymous sign-in
+(`detectSessionInUrl: false`). Emails are sent by Supabase Auth through
+Resend SMTP (sender `Vostivo <no-reply@auth.vostivo.cz>`, code-only
+templates using `{{ .Token }}`); the SMTP credential lives only in the
+Supabase dashboard, never in this repo. OTP lifetime 600 s; resend cooldown
+60 s in the UI (`OTP_RESEND_COOLDOWN_MS`), restarted also by a refused
+resend.
+
+### 27.2 Configuration (names only — values live in gitignored `.env`)
+
+| App | Variable | Notes |
+|---|---|---|
+| mobile | `EXPO_PUBLIC_SUPABASE_URL` | `https://<ref>.supabase.co`; `http` only for localhost / 10.0.2.2 |
+| mobile | `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_...`; `sb_secret_...` / service_role JWT refused at startup. Replaces `EXPO_PUBLIC_SUPABASE_ANON_KEY` (removed) |
+| api | `SUPABASE_URL` | the same project URL; JWKS + issuer derive from it; no key of any kind in the API |
+| api | `LOCAL_JWKS_PATH` | leave UNSET for real sign-ins (it switches verification to locally minted dev tokens; `NODE_ENV=local` only) |
+
+Wiring (`createAuthSessionWiring`): production = Supabase only (a dev token
+refuses to boot; missing/unsafe config -> a "Sign-in unavailable" screen,
+no session). Non-production: `EXPO_PUBLIC_DEV_JWTS` (`__DEV__` only) or
+`EXPO_PUBLIC_DEV_JWT` win when set; else Supabase when configured; else no
+session. Dev tokens and cloud tokens never verify against the same API
+configuration.
+
+API verification needed no code change: `jose` + remote JWKS at
+`<SUPABASE_URL>/auth/v1/.well-known/jwks.json`, issuer
+`<SUPABASE_URL>/auth/v1`, audience `authenticated`. This requires the
+project to use asymmetric JWT signing keys (the JWKS must list a key); no
+service_role or shared secret. Cloud users arrive with UUID subjects and
+provider `supabase`; their `User`/`AthleteProfile` is created by `/me`
+through the existing identity resolution.
+
+### 27.3 Session storage (`apps/mobile/src/auth/chunked-secure-session-storage.ts`)
+
+Supabase session JSON is stored in expo-secure-store only (never
+AsyncStorage, never a plaintext fallback), as chunks of one generation
+(`vostivo.auth.<slot>.g<N>.<i>`, 1800 chars) plus a manifest written LAST
+(`vostivo.auth.<slot>.manifest`: generation, chunk count, length, FNV-1a
+checksum). A crash before the manifest switch keeps the previous session;
+a missing/corrupt chunk or manifest fails closed (no session, never a
+partial one); a keystore failure is `SessionStorageUnavailableError` —
+never "signed out" and never a reason to delete anything (the gate keeps an
+open owner's data with sync paused, or shows SESSION_STORAGE_UNAVAILABLE).
+
+### 27.4 Session source (`supabase-auth-session-source.ts`, `supabase-auth-client.ts`)
+
+`createClient` exists only in `supabase-auth-client.ts` (`persistSession`,
+`autoRefreshToken`, `detectSessionInUrl: false`); only `client.auth`
+leaves it. `SupabaseAuthSessionSource` adapts it to Slice B's
+`AuthSessionSource`: `providerSubject = user.id`. SDK events are coalesced
+by (subject, token) / loss signature and delivered outside the SDK's auth
+lock. A `SIGNED_OUT` not caused by `signOut()` is loss `SESSION_INVALID`.
+Offline with an expired access token (SDK: no session + retryable error) the
+stored identity is returned so a VERIFIED binding can still open offline.
+Auto-refresh runs only in the foreground (app lifecycle). Tokens, OTPs and
+session payloads are never logged; UI copy comes only from
+`auth-errors.ts` (NETWORK_UNAVAILABLE / INVALID_EMAIL / INVALID_OTP /
+OTP_EXPIRED / RATE_LIMITED / SESSION_INVALID / STORAGE_UNAVAILABLE /
+CONFIGURATION_ERROR / UNKNOWN). Supabase answers `otp_expired` for a wrong
+code too, so OTP_EXPIRED is reported only when >= 600 s since the send.
+
+### 27.5 401 policy (`workout/authorized-request.ts`)
+
+Every authenticated request (plan, progress, missed-workout, equipment,
+loading setup, progression, `/me`, sync): 401 -> ONE single-flight
+`refreshSession()` shared by all concurrent 401s -> ONE retry -> still 401
+-> session marked invalid locally (`signOut({scope: "local"})`) -> the gate
+re-evaluates. Never a loop. The auth service being unreachable is
+`AuthServiceUnavailableError` = offline, never SESSION_INVALID.
+
+### 27.6 IdentityGate additions
+
+States: `SIGNED_OUT` (sign-in screen), `REAUTH_REQUIRED` (no owner open),
+`READY {verification: ONLINE | OFFLINE_BINDING, auth: VALID |
+REAUTH_REQUIRED}`. Sync (outbox) is permitted only for `ONLINE && VALID`
+(`SyncPermit` + `PermitGatedAuthTokenProvider`; a paused engine leaves the
+outbox untouched, the coordinator schedules no backoff).
+- Invalid session while READY: the SAME runtime stays (Active Workout keeps
+  logging and can Finish locally), sync paused, a "Sign in again to sync"
+  pill + a re-auth sheet (not auto-opened on `/active-workout`, "Not now"
+  available).
+- Same-subject re-auth: no dispose, `/me` re-verifies the same `userId`,
+  sync resumes (`requestSync("reverified")`); commands are the same ids, so
+  nothing duplicates (owner-scoped receipts).
+- Other-subject sign-in: the ordinary Slice B A -> B transition (A disposed
+  before B is resolved/opened).
+- Offline-bound boot: data usable, sync OFF until network regain or
+  foreground re-verifies `/me` for the same owner (closes §26.10 "no
+  re-verification on network regain").
+- `/me` BINDING_CONFLICT still fails closed (dispose); another untrustworthy
+  answer only revokes sync.
+- Only an explicit sign-out (Slice D UX; primitive `signOut()` exists)
+  disposes without a successor.
+
+### 27.7 Tests (automated)
+
+Mobile 497 tests / 51 files green (2026-10-26; +AUTH-023 `owner-bound-
+auth-token-provider` no session -> `SessionInvalidError` with sign-in copy,
+never `RuntimeOwnerMismatchError`; +AUTH-024 `auth-recovery` REAUTH_REQUIRED
+-> VALID bumps the recovery count that re-runs Today's load). Slice C: `auth-errors` (AUTH-003/004/005/
+019), `chunked-secure-session-storage` (AUTH-006/007/008/022),
+`supabase-auth-session-source` with a fake SDK port (AUTH-001/002/009/010/
+016/019/022, loss mapping, foreground refresh), `sign-in-flow` (AUTH-001/
+002/003, cooldown), `authorized-request` (AUTH-011/019), `sync-engine`
+(AUTH-011/012/014/018/019), `identity-gate-controller` (AUTH-001/009/012/
+013/014/015/016/017/018/022), `athlete-isolation` on real SQLite (AUTH-013/
+014 mid-workout revoke -> finish locally -> same-owner re-auth syncs each
+command exactly once; AUTH-015/021 cross-owner re-auth; AUTH-018 offline
+relaunch needs `/me` before sync; AUTH-019), `auth-session-config`
+(AUTH-020), `no-hidden-runtime-path` (one client, auth only, no data
+access, no AsyncStorage, no ANON/secret key names). API 266 unit + 328
+real-Postgres integration, worker 19 integration, turbo build/typecheck/
+lint/test, `boundaries:check`, Android `expo export` — all green.
+Closure re-run 2026-10-26 (evidence `closure/`): turbo typecheck 19/19,
+lint 19/19, test 18/18 (mobile 497, API 266), build 11/11, `boundaries:check`
+0 violations (628 modules), `expo export --platform android` OK with no
+secret/JWT in the bundle, API integration 328/328, worker 19/19, progression-
+application 88/88. Two environment-only flakes, no code change: API EQC-01/
+X-034 hit the 5 s timeout once under host load (EQC-02 failed in the broken
+cleanup after it; the same files 31/31 in isolation, the full suite 328/328
+on re-run); progression-application exhausted Postgres connection slots
+while the acceptance API/worker held pools (88/88 with
+`--no-file-parallelism`; CI has no such stack). `vostivo_manual` fingerprint
+identical before/after (tests use `vostivo_dev`). `format:check` is not a CI
+gate and fails on the same files at HEAD (pre-existing).
+
+### 27.8 Human acceptance — PASSED (2026-10-21 .. 2026-10-26, evidence outside the repo: `vostivo-acceptance-evidence/auth-slice-c/`)
+
+AVD `Vostivo_Auth_Slice_C` (dev build + Metro; embedded-bundle debug APK
+for F), real cloud Supabase project (email OTP), local API + worker,
+`vostivo_manual`, athletes A and B. Supabase access-token expiry was
+temporarily lowered to 300 s for the run; a session was revoked by deleting
+the athlete's rows in `auth.sessions`. An acceptance-only proxy logged
+method/path/status only (no headers, bodies or tokens).
+
+- A fresh OTP sign-in -> `/me` bound the provider subject to one internal
+  `userId`; B relaunch without OTP (SecureStore session restored) — PASS.
+- C mid-workout revoke: pill only on Active Workout (no sheet), sets and
+  Finish kept working locally into A's open DB, server unchanged — PASS.
+- D same-owner re-auth: pending commands synced exactly once, 0 duplicate
+  `command_id`s — PASS, but Today needed a manual Retry and showed the
+  owner-mismatch text while signed out -> fixes AUTH-023/AUTH-024.
+- E cross-owner B (missed-workout apply + a logged set) and back to A: only
+  one athlete DB handle open at a time, 0 cross-owner receipts — PASS.
+- F offline boot (wifi + data off) -> READY offline, a set logged offline,
+  server untouched until reconnect, then `/me` re-verified before sync —
+  PASS.
+- R (device re-check of both fixes, 2026-10-26, same owner A, runtime kept
+  open while the session was revoked): Plan with no session shows "Could not
+  load your plan / Sign in again to load your latest training." with no
+  request sent (twice); after re-auth via the pill, Today's
+  `plan/current`, `pending`, `attention` and `missed-workout-preview` ran
+  within 345 ms of `/me` 200 with no Retry and the missed-workout card came
+  back — PASS. Today itself shows Resume (an active workout outranks the
+  error state by design), so fix AUTH-023 is observed on Plan.
+- Throughout: no new identity rows, A/B DBs intact (SHA-256 identical across
+  an emulator restart), 0 cross-owner receipts, 0 duplicate command ids,
+  no JWT/OTP/key in any evidence file.
+
+supabase-js under Hermes/RN 0.86 (RN's own `URL`, no polyfill) and the
+chunked SecureStore session are now native-verified on the emulator.
+
+### 27.9 Known limitations / open
+
+Production Supabase project not created (D-1 prod half); sign-out UX is
+Slice D; the re-auth sheet auto-opens once on any READY screen except
+Active Workout (there only the pill offers it); `otp_expired` cannot distinguish a
+wrong code from an expired one inside 600 s (by design of the provider).
+
+Acceptance findings (2026-10-26 triage; none blocks Slice C closure):
+- FOLLOW-UP, high (release gate): offline boot sat 20-40 s on "Getting your
+  training ready" (F, emulator, wifi + data off). No bounded timeout exists
+  on the session refresh / `/me` path at boot; on poor gym connectivity
+  this could be longer. Data stayed correct; investigate + add a bounded
+  timeout before release.
+- FOLLOW-UP, medium (not Slice C): `parseLoadInput` rejects a decimal comma
+  (`42,5`), which a Czech-locale `decimal-pad` keyboard can offer.
+- NON-BLOCKER, UI polish: the "Sign in again to sync" pill (absolute,
+  top 44) overlaps the Active Workout header and touches Today's title.
+- NON-BLOCKER, watch: one native SIGSEGV in RN Fabric
+  `MountingCoordinator::pullTransaction` on the first offline launch of the
+  debug APK; not reproduced, no data written or lost.
+- ENVIRONMENT (not product): the Android emulator must run with
+  `-no-snapshot`; with Quickboot save enabled its file-backed guest RAM
+  wrote ~64 MB/s to the host SSD and froze the desktop.
+

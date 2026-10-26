@@ -5,6 +5,7 @@ import { FetchWorkoutSyncApiClient, type WorkoutSyncApiClient } from "../workout
 import { WorkoutApplicationService } from "../workout/workout-application-service";
 import { AdjustedWorkoutStartService } from "../workout/adjusted-workout-start";
 import type { AuthTokenProvider } from "../workout/auth-token-provider";
+import { PermitGatedAuthTokenProvider, SyncPermit } from "../workout/sync-permit";
 import type { AvailableTimeFlowPorts } from "../available-time/available-time-controller";
 import { FetchProgressionApiClient, type ProgressionApiClient } from "../progression/progression-api-client";
 import { FetchGuidedLoadingSetupApiClient, type GuidedLoadingSetupApiClient } from "../progression/guided-loading-setup-api-client";
@@ -63,6 +64,12 @@ export interface AthleteRuntime {
   /** Progress & Feedback V1 Slice B — read-only Progress reads. */
   readonly progressApiClient: ProgressApiClient;
   /**
+   * Auth Slice C — the IdentityGate grants/withdraws outbox sync for this
+   * owner (verified online + valid session). Granting it requests a sync;
+   * local logging never depends on it.
+   */
+  setSyncPermitted(permitted: boolean): void;
+  /**
    * Stops sync, makes every further local-database access of this runtime
    * fail, and closes the database handle (awaited). The IdentityGate awaits
    * this before it opens another owner's database.
@@ -77,6 +84,8 @@ export interface AthleteRuntimeInput {
   /** Owner-bound: yields a token only while the session is still this owner's. */
   readonly authTokenProvider: AuthTokenProvider;
   readonly apiBaseUrl: string;
+  /** Whether the outbox may sync from the start (true only when the owner was just verified online). */
+  readonly syncPermitted: boolean;
   /** Tests inject a fake transport; the app uses the real `fetch` client. */
   readonly workoutSyncApiClient?: WorkoutSyncApiClient;
   readonly syncLogger?: WorkoutSyncLogger;
@@ -94,7 +103,8 @@ export function createAthleteRuntime(input: AthleteRuntimeInput): AthleteRuntime
   let disposed = false;
 
   const repository = new WorkoutRepository(() => (disposed ? Promise.reject(new AthleteRuntimeDisposedError()) : Promise.resolve(database.db)));
-  const syncEngine = new SyncEngine(ownerUserId, repository, authTokenProvider, input.workoutSyncApiClient ?? new FetchWorkoutSyncApiClient(apiBaseUrl));
+  const syncPermit = new SyncPermit(input.syncPermitted);
+  const syncEngine = new SyncEngine(ownerUserId, repository, new PermitGatedAuthTokenProvider(authTokenProvider, syncPermit), input.workoutSyncApiClient ?? new FetchWorkoutSyncApiClient(apiBaseUrl));
   const workoutApplicationService = new WorkoutApplicationService(repository, syncEngine);
   const workoutSyncCoordinator = new WorkoutSyncCoordinator(() => workoutApplicationService.syncPendingWorkoutCommands(), {
     batchSize: DEFAULT_BATCH_SIZE,
@@ -144,6 +154,11 @@ export function createAthleteRuntime(input: AthleteRuntimeInput): AthleteRuntime
       retryTrainingTimeZone: () => trainingTimeZoneBootstrapper.retry(),
     },
     progressApiClient: new FetchProgressApiClient(apiBaseUrl, authTokenProvider),
+    setSyncPermitted(permitted) {
+      if (disposed || syncPermit.isPermitted === permitted) return;
+      syncPermit.set(permitted);
+      if (permitted) workoutSyncCoordinator.requestSync("reverified");
+    },
     async dispose() {
       if (disposed) return;
       disposed = true;

@@ -55,4 +55,22 @@ describe("no hidden path around the IdentityGate", () => {
     expect(filesMatching(/"vostivo\.db"/)).toEqual(["src/local-database/athlete-database.ts"]);
     expect(filesMatching(/"vostivo\.local-db-encryption-key"/)).toEqual(["src/local-database/athlete-database.ts"]);
   });
+
+  it("Auth Slice C: Supabase is the identity provider only — one client, auth only, no data access, no plaintext session storage", () => {
+    expect(filesMatching(/\bcreateClient\(/)).toEqual(["src/auth/supabase-auth-client.ts"]);
+    expect(filesMatching(/from "@supabase\//).every((path) => path.startsWith("src/auth/"))).toBe(true);
+    // The Data API is disabled; athlete data goes only through the Vostivo API.
+    expect(filesMatching(/\.(from|rpc|channel)\(\s*["'`]|\.storage\.from\(|\.functions\.invoke\(/)).toEqual([]);
+    expect(filesMatching(/from "@react-native-async-storage\//)).toEqual([]);
+    const client = readFileSync(new URL("src/auth/supabase-auth-client.ts", MOBILE_ROOT), "utf8");
+    expect(client).toMatch(/detectSessionInUrl: false/);
+    expect(client).toMatch(/new SupabaseAuthSessionSource\(client\.auth/);
+  });
+
+  it("Auth Slice C: no secret/service-role key name and no ANON_KEY leftover anywhere in the app", () => {
+    expect(filesMatching(/SERVICE_ROLE|SUPABASE_SECRET|EXPO_PUBLIC_SUPABASE_ANON_KEY/)).toEqual([]);
+    const gate = readFileSync(new URL("src/identity/identity-gate.tsx", MOBILE_ROOT), "utf8");
+    expect(gate).toContain("process.env.EXPO_PUBLIC_SUPABASE_URL");
+    expect(gate).toContain("process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+  });
 });

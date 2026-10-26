@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { SyncWorkoutCommandsRequest, SyncWorkoutCommandsResponse, WorkoutCommandV1 } from "@vostivo/contracts";
 import { SyncEngine } from "./sync-engine";
 import type { OutboxCommandRecord, OutboxPort } from "./outbox-port";
-import { RuntimeOwnerMismatchError, type AuthTokenProvider } from "./auth-token-provider";
-import { TransientSyncFailure, type WorkoutSyncApiClient } from "./workout-sync-api-client";
+import { AuthServiceUnavailableError, RuntimeOwnerMismatchError, SessionInvalidError, SyncNotPermittedError, type AuthTokenProvider, type UnauthorizedRecovery } from "./auth-token-provider";
+import { TransientSyncFailure, UnauthorizedSyncResponse, type WorkoutSyncApiClient } from "./workout-sync-api-client";
 
 const OWNER = "0190a000-0000-7000-8000-00000000000a";
 
@@ -265,5 +265,77 @@ describe("SyncEngine — Auth & Local Athlete Boundary V1 Slice B owner binding"
 
     await expect(engine.syncPendingCommands()).rejects.toBeInstanceOf(RuntimeOwnerMismatchError);
     expect(outbox.statuses.get("cmd-1")).toBe("RETRY");
+  });
+});
+
+describe("SyncEngine — Auth Slice C session lifecycle", () => {
+  class RefreshingProvider implements AuthTokenProvider {
+    token = "t1";
+    recoveries = 0;
+    reports = 0;
+    constructor(private readonly recover: (provider: RefreshingProvider) => Promise<UnauthorizedRecovery>) {}
+    getAccessToken(): Promise<string> {
+      return Promise.resolve(this.token);
+    }
+    recoverFromUnauthorized(): Promise<UnauthorizedRecovery> {
+      this.recoveries += 1;
+      return this.recover(this);
+    }
+    reportSessionInvalid(): Promise<void> {
+      this.reports += 1;
+      return Promise.resolve();
+    }
+  }
+
+  const acknowledgeAll = (request: SyncWorkoutCommandsRequest): SyncWorkoutCommandsResponse => ({
+    acknowledgements: request.commands.map((c) => ({ commandId: c.commandId, outcome: "APPLIED" as const })),
+  });
+
+  it("AUTH-011/014: 401 -> one refresh -> the SAME batch is resent once with the new token and applied", async () => {
+    const outbox = new InMemoryOutbox(["cmd-1", "cmd-2"]);
+    const tokens: string[] = [];
+    const provider = new RefreshingProvider((self) => {
+      self.token = "t2";
+      return Promise.resolve("REFRESHED");
+    });
+    const engine = new SyncEngine(OWNER, outbox, provider, {
+      syncCommands: (token, request) => {
+        tokens.push(token);
+        return token === "t1" ? Promise.reject(new UnauthorizedSyncResponse()) : Promise.resolve(acknowledgeAll(request));
+      },
+    });
+    await engine.syncPendingCommands();
+    expect(tokens).toEqual(["t1", "t2"]);
+    expect([...outbox.statuses.values()]).toEqual(["SYNCED", "SYNCED"]);
+  });
+
+  it("AUTH-012: still 401 after the refresh -> SessionInvalidError, rows back to RETRY (never REJECTED), no third send", async () => {
+    const outbox = new InMemoryOutbox(["cmd-1"]);
+    const provider = new RefreshingProvider(() => Promise.resolve("REFRESHED"));
+    const syncCommands = vi.fn<WorkoutSyncApiClient["syncCommands"]>(() => Promise.reject(new UnauthorizedSyncResponse()));
+    const engine = new SyncEngine(OWNER, outbox, provider, { syncCommands });
+    await expect(engine.syncPendingCommands()).rejects.toBeInstanceOf(SessionInvalidError);
+    expect(syncCommands).toHaveBeenCalledTimes(2);
+    expect(provider.reports).toBe(1);
+    expect(outbox.statuses.get("cmd-1")).toBe("RETRY");
+  });
+
+  it("AUTH-019: the auth service unreachable during the refresh is an ordinary retry (offline), not an invalid session", async () => {
+    const outbox = new InMemoryOutbox(["cmd-1"]);
+    const provider = new RefreshingProvider(() => Promise.reject(new AuthServiceUnavailableError()));
+    const engine = new SyncEngine(OWNER, outbox, provider, { syncCommands: () => Promise.reject(new UnauthorizedSyncResponse()) });
+    const result = await engine.syncPendingCommands();
+    expect(result.retried).toBe(1);
+    expect(provider.reports).toBe(0);
+    expect(outbox.statuses.get("cmd-1")).toBe("RETRY");
+  });
+
+  it("AUTH-018: sync not permitted (owner not re-verified online) -> nothing sent, outbox untouched", async () => {
+    const outbox = new InMemoryOutbox(["cmd-1"]);
+    const syncCommands = vi.fn<WorkoutSyncApiClient["syncCommands"]>();
+    const engine = new SyncEngine(OWNER, outbox, { getAccessToken: () => Promise.reject(new SyncNotPermittedError()) }, { syncCommands });
+    await expect(engine.syncPendingCommands()).rejects.toBeInstanceOf(SyncNotPermittedError);
+    expect(syncCommands).not.toHaveBeenCalled();
+    expect(outbox.statuses.get("cmd-1")).toBe("PENDING");
   });
 });

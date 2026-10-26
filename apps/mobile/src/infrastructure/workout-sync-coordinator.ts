@@ -1,11 +1,11 @@
 import type { SyncPendingCommandsResult } from "../workout/sync-engine";
-import { RuntimeOwnerMismatchError } from "../workout/auth-token-provider";
+import { SyncPausedError } from "../workout/auth-token-provider";
 
 /**
  * Why a sync pass was requested. Only used for DEV observability — every
  * trigger is handled identically (spec: one coordinator, one policy).
  */
-export type WorkoutSyncTrigger = "mutation" | "launch" | "foreground" | "network-regain" | "retry";
+export type WorkoutSyncTrigger = "mutation" | "launch" | "foreground" | "network-regain" | "retry" | "reverified";
 
 /**
  * The deterministic V1 retry backoff after a retryable failure: 2 s, 5 s,
@@ -116,7 +116,7 @@ export class WorkoutSyncCoordinator {
 
     let retryable = false;
     let moreMayBePending = false;
-    let ownerMismatch = false;
+    let paused = false;
     try {
       const result = await this.sync();
       retryable = result.retried > 0;
@@ -130,12 +130,13 @@ export class WorkoutSyncCoordinator {
         });
       }
     } catch (error) {
-      if (error instanceof RuntimeOwnerMismatchError) {
-        // Slice B: the session is not this runtime's owner. Not a failed
-        // retry — no backoff, no failure count; the IdentityGate replaces
-        // this runtime. A later trigger simply re-checks (still no network).
-        ownerMismatch = true;
-        this.logger.debug("workout sync paused: session is not the runtime owner", { trigger });
+      if (error instanceof SyncPausedError) {
+        // Slice B/C: the session is not this runtime's owner, the owner is
+        // not verified online yet, or re-authentication is pending. Not a
+        // failed retry — no backoff, no failure count; the IdentityGate
+        // resumes sync ("reverified") or replaces this runtime.
+        paused = true;
+        this.logger.debug("workout sync paused until the owner is verified", { trigger, reason: error.name });
       } else {
         // SyncEngine has already returned every affected command to RETRY
         // before rethrowing, so this is retryable work, not a lost command.
@@ -150,7 +151,7 @@ export class WorkoutSyncCoordinator {
     }
 
     if (this.disposed) return;
-    if (ownerMismatch) {
+    if (paused) {
       this.followUpTrigger = undefined;
       return;
     }
