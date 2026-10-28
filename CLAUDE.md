@@ -1816,11 +1816,18 @@ Current known tech debt:  ESLint major-version split (web/mobile on 9.x);
                            "Available weights" still reject `2,5` — the list
                            uses `,` as its separator, needs its own locale
                            decision; offline-boot timeouts bounded
-                           (Phase 1, 2026-10-28, uncommitted: offline +
+                           (Phase 1, 2026-10-28, `01e0b7b`: offline +
                            expired token ~9 s instead of ~30 s, hung API
                            ~10 s instead of > 5 min), re-auth pill overlap,
-                           a Fabric `MountingCoordinator` SIGSEGV now
-                           reproducible on offline boots (~1 in 3-5));
+                           a Fabric `MountingCoordinator` SIGSEGV on
+                           the first React commit, before IdentityGate/auth
+                           logic runs — reproduced in debug/dev-client
+                           builds (8/60 cold starts), not reproduced in the
+                           controlled release probe (0/90); consistent with
+                           an RN/Fabric lifecycle or use-after-free defect,
+                           root cause not proven; not treated as a current
+                           release blocker, monitor on physical/release
+                           builds and re-test after RN/Expo upgrades);
                            `apps/mobile` requires `metro.config.js`'s
                            `unstable_enableSymlinks: true` for pnpm's
                            nested workspace symlinks (expo-doctor flags

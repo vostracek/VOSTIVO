@@ -1063,7 +1063,7 @@ Acceptance findings (2026-10-26 triage; none blocks Slice C closure):
   on the session refresh / `/me` path at boot; on poor gym connectivity
   this could be longer. Data stayed correct; investigate + add a bounded
   timeout before release.
-  **Phase 1 bounded timeouts (2026-10-28, not yet committed):** root cause
+  **Phase 1 bounded timeouts (2026-10-28, `01e0b7b`):** root cause
   was supabase-js holding `getSession()` while it retried the offline
   refresh of an expired token (backoff up to ~30 s), plus no timeout at all
   on RN Android `fetch` (an API that accepts and never answers hung boot
@@ -1089,15 +1089,30 @@ Acceptance findings (2026-10-26 triage; none blocks Slice C closure):
   Active Workout (2026-10-26, `f7f3a74`); Loading Setup still open.
 - NON-BLOCKER, UI polish: the "Sign in again to sync" pill (absolute,
   top 44) overlaps the Active Workout header and touches Today's title.
-- WATCH, now reproducible (not fixed): native SIGSEGV in RN Fabric
-  `MountingCoordinator::pullTransaction` (`libreactnative.so`, JS thread
-  `mqt_v_js`) during offline boots of the debug APK, right when the first
-  screen mounts. First seen on acceptance F; again 1 of 5 offline +
-  expired-token boots (2026-10-26, embedded bundle), 1 of 4 (2026-10-26,
-  Metro bundle) and 2 of 5 (2026-10-28, Phase 1 code; one `SEGV_MAPERR`
-  at 0x4, one `SEGV_ACCERR`). Never seen online. No data written or lost;
-  relaunch works. Needs its own investigation (RN version / release build)
-  before beta.
+- MONITORED (investigated 2026-10-28, not fixed): native SIGSEGV in RN
+  Fabric `MountingCoordinator::pullTransaction(bool)+706` (RN 0.86.3,
+  `libreactnative.so`, JS thread `mqt_v_js`). Reproduced in debug/dev-client
+  builds; not reproduced in the controlled release probe (0/90 cold
+  starts). The crash occurs inside React Native Fabric on the first React
+  commit (`UIManager::completeSurface` -> `ShadowTree::commit` -> `mount`),
+  ~60 ms after `Running "main"`, before Vostivo IdentityGate/auth logic
+  (including the Phase 1 timeouts) runs; seen with both the Metro and the
+  APK-embedded bundle. The faulting instruction is the virtual call
+  `mountingOverrideDelegate->shouldOverridePullTransaction()` on
+  freed/overwritten memory (fault addr 0x3/0x4, or pc inside the scudo
+  heap); with release level `stable` none of the delegate features (C++
+  Animated, Android LayoutAnimation, ViewTransition) is enabled. The native
+  evidence is consistent with a React Native/Fabric lifecycle or
+  use-after-free defect, but the exact root cause is not proven.
+  Controlled comparison on a fresh AVD (`Vostivo_Release_Probe`, same
+  system image, no session, sign-in screen): debug/dev-client APK 8 of 60
+  cold starts crashed (4/30 offline, 4/30 online); release APK
+  (`assembleRelease`, x86_64) 0 of 90 (60 offline, 30 online). All 8
+  crashes share the `pullTransaction(bool)+706` signature. The earlier
+  "offline only" observation was a small-sample artefact. No data written
+  or lost; a relaunch works. Not treated as a current release blocker
+  based on the 0/90 release probe, but continue monitoring on
+  physical/release builds and re-test after React Native / Expo upgrades.
 - ENVIRONMENT (not product): the Android emulator must run with
   `-no-snapshot`; with Quickboot save enabled its file-backed guest RAM
   wrote ~64 MB/s to the host SSD and froze the desktop.
