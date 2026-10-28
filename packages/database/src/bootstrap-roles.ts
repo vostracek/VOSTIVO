@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import { createLogger } from "@vostivo/observability";
 import { loadMigrationDatabaseConfig } from "./config.js";
+import { assertDevToolingTarget } from "./data-environment.js";
 
 const logger = createLogger({ serviceName: "database-bootstrap-roles" });
 
@@ -53,6 +54,7 @@ const APP_SCHEMA = "app";
  */
 async function main(): Promise<void> {
   const config = loadMigrationDatabaseConfig();
+  await assertDevToolingTarget(config.MIGRATION_DATABASE_URL, "db:bootstrap-roles");
   const password = requireApiRolePassword();
   const migratorRole = new URL(config.MIGRATION_DATABASE_URL).username;
 

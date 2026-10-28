@@ -22,3 +22,11 @@ describe("workerConfigSchema", () => {
     expect(() => workerConfigSchema.parse({ ...REQUIRED, DATABASE_URL: "not-a-url" })).toThrow();
   });
 });
+
+describe("workerConfigSchema — VOSTIVO_DATA_ENV (Dogfood Environment V1)", () => {
+  it("is optional and accepts only dev/manual/dogfood", () => {
+    expect(loadWorkerConfig(REQUIRED).VOSTIVO_DATA_ENV).toBeUndefined();
+    expect(loadWorkerConfig({ ...REQUIRED, VOSTIVO_DATA_ENV: "dogfood" }).VOSTIVO_DATA_ENV).toBe("dogfood");
+    expect(() => workerConfigSchema.parse({ ...REQUIRED, VOSTIVO_DATA_ENV: "prod" })).toThrow();
+  });
+});

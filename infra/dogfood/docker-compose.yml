@@ -1,0 +1,37 @@
+# Dogfood Environment V1 — Lukáš's real training data, isolated from the
+# dev/acceptance stack (root docker-compose.yml, vostivo_dev/vostivo_manual).
+#
+# - its own compose project, container, volume and roles: no dev/test
+#   credential (vostivo/vostivo, vostivo_api) exists in this cluster;
+# - published on loopback only (127.0.0.1:5433), never 0.0.0.0;
+# - the owner password lives OUTSIDE git, in ~/.config/vostivo/dogfood/compose.env
+#   (created by `pnpm dogfood init-config`), and compose refuses to start without it.
+#
+# Run only through `pnpm dogfood up` (never `docker compose down -v`: the
+# volume IS the dogfood data; backups: `pnpm dogfood backup`).
+name: vostivo-dogfood
+
+services:
+  postgres-dogfood:
+    image: postgres:17-alpine
+    container_name: vostivo-dogfood-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vostivo_dogfood_owner
+      POSTGRES_PASSWORD: ${VOSTIVO_DOGFOOD_OWNER_PASSWORD:?run `pnpm dogfood init-config` and pass --env-file ~/.config/vostivo/dogfood/compose.env}
+      POSTGRES_DB: vostivo_dogfood
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - vostivo_dogfood_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # TCP (-h 127.0.0.1), so the initdb-phase socket-only server never counts as ready.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "vostivo_dogfood_owner", "-d", "vostivo_dogfood"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  vostivo_dogfood_pgdata:
+    name: vostivo_dogfood_pgdata

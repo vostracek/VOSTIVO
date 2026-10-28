@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { baseConfigSchema, loadConfig } from "@vostivo/config";
+import { DATA_ENVIRONMENTS } from "@vostivo/database";
 
 /**
  * Progression Evaluation Orchestration V1 — the worker's first real
@@ -11,6 +12,8 @@ import { baseConfigSchema, loadConfig } from "@vostivo/config";
  */
 export const workerConfigSchema = baseConfigSchema.extend({
   DATABASE_URL: z.string().url(),
+  // Dogfood Environment V1 — same meaning and guard as apps/api's config.
+  VOSTIVO_DATA_ENV: z.enum(DATA_ENVIRONMENTS).optional(),
 });
 
 export type WorkerConfig = z.infer<typeof workerConfigSchema>;

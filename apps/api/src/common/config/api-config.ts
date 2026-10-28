@@ -1,8 +1,16 @@
 import { z } from "zod";
 import { baseConfigSchema, loadConfig } from "@vostivo/config";
+import { DATA_ENVIRONMENTS } from "@vostivo/database";
+
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 
 export const apiConfigSchema = baseConfigSchema.extend({
   PORT: z.coerce.number().int().positive().default(4000),
+  // Interface the HTTP server binds to. Defaults to all interfaces, which
+  // keeps every existing dev/manual setup (emulator via 10.0.2.2, LAN
+  // device) working unchanged; the dogfood runtime sets 127.0.0.1 and the
+  // superRefine below makes anything but loopback a config error there.
+  HOST: z.union([z.ipv4(), z.ipv6()]).default("0.0.0.0"),
   DATABASE_URL: z.string().url(),
   // The Supabase project base URL, e.g. https://<project-ref>.supabase.co —
   // used to derive both the JWKS endpoint and the expected `iss` claim.
@@ -36,7 +44,27 @@ export const apiConfigSchema = baseConfigSchema.extend({
   // variable happens to be present in a development/staging/production
   // environment's config.
   LOCAL_JWKS_PATH: z.string().optional(),
+  // Dogfood Environment V1 — which data environment this process serves.
+  // `dogfood` is set only by the dogfood runtime config (outside git); the
+  // startup guard in main.ts then requires the connected database to be
+  // `vostivo_dogfood` carrying its marker, and refuses that database to
+  // every other value (see packages/database/src/data-environment.ts).
+  VOSTIVO_DATA_ENV: z.enum(DATA_ENVIRONMENTS).optional(),
 }).superRefine((config, ctx) => {
+  if (config.VOSTIVO_DATA_ENV === "dogfood" && !LOOPBACK_HOSTS.has(config.HOST)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["HOST"],
+      message: "VOSTIVO_DATA_ENV=dogfood requires HOST=127.0.0.1 (or ::1) - the dogfood API is never exposed beyond localhost.",
+    });
+  }
+  if (config.VOSTIVO_DATA_ENV === "dogfood" && config.LOCAL_JWKS_PATH !== undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["LOCAL_JWKS_PATH"],
+      message: "LOCAL_JWKS_PATH is forbidden with VOSTIVO_DATA_ENV=dogfood - dogfood accepts real Supabase tokens only.",
+    });
+  }
   if (config.LOCAL_JWKS_PATH !== undefined && config.NODE_ENV !== "local") {
     ctx.addIssue({
       code: "custom",

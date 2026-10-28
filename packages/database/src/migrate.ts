@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { createLogger } from "@vostivo/observability";
 import { loadMigrationDatabaseConfig } from "./config.js";
+import { assertDevToolingTarget } from "./data-environment.js";
 
 const logger = createLogger({ serviceName: "database-migrate" });
 
@@ -14,6 +15,8 @@ const logger = createLogger({ serviceName: "database-migrate" });
  */
 async function main(): Promise<void> {
   const config = loadMigrationDatabaseConfig();
+  // Dev/CI migrations only — the dogfood database migrates exclusively via `pnpm dogfood:bootstrap` (backup first).
+  await assertDevToolingTarget(config.MIGRATION_DATABASE_URL, "db:migrate");
   const sql = postgres(config.MIGRATION_DATABASE_URL, { max: 1 });
   const db = drizzle(sql);
 

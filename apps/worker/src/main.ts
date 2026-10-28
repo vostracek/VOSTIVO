@@ -1,5 +1,5 @@
 import { PgBoss } from "pg-boss";
-import { createDatabaseClient } from "@vostivo/database";
+import { assertDataEnvironment, createDatabaseClient } from "@vostivo/database";
 import { createLogger } from "@vostivo/observability";
 import {
   PROGRESSION_APPLICATION_DISPATCH_QUEUE_V1,
@@ -31,7 +31,9 @@ export async function startWorker(): Promise<{ stop: () => Promise<void> }> {
   const config = loadWorkerConfig();
   const logger = createLogger({ serviceName: "vostivo-worker" });
 
-  logger.info("Vostivo worker starting", { env: config.NODE_ENV });
+  logger.info("Vostivo worker starting", { env: config.NODE_ENV, dataEnv: config.VOSTIVO_DATA_ENV ?? "unset" });
+  // Dogfood Environment V1 — refuse a declared/connected data-environment mismatch before pg-boss starts.
+  await assertDataEnvironment(config.VOSTIVO_DATA_ENV, config.DATABASE_URL);
 
   const db = createDatabaseClient(config.DATABASE_URL);
   const boss = new PgBoss({ connectionString: config.DATABASE_URL, migrate: false, supervise: true, schedule: false });

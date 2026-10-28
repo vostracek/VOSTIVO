@@ -2,6 +2,7 @@ import postgres from "postgres";
 import { PgBoss } from "pg-boss";
 import { createLogger } from "@vostivo/observability";
 import { loadMigrationDatabaseConfig } from "./config.js";
+import { assertDevToolingTarget } from "./data-environment.js";
 
 const logger = createLogger({ serviceName: "database-bootstrap-pgboss" });
 
@@ -57,6 +58,7 @@ const API_RUNTIME_ROLE = "vostivo_api";
  */
 async function main(): Promise<void> {
   const config = loadMigrationDatabaseConfig();
+  await assertDevToolingTarget(config.MIGRATION_DATABASE_URL, "db:bootstrap-pgboss");
   const migratorRole = new URL(config.MIGRATION_DATABASE_URL).username;
 
   logger.info("Running pg-boss's own schema migrations", { schema: PGBOSS_SCHEMA });

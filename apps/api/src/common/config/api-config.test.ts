@@ -33,3 +33,43 @@ describe("apiConfigSchema — rate limiting / trust proxy", () => {
     expect(() => apiConfigSchema.parse({ ...REQUIRED, TRUST_PROXY: "yes" })).toThrow();
   });
 });
+
+describe("apiConfigSchema — VOSTIVO_DATA_ENV (Dogfood Environment V1)", () => {
+  it("is optional and accepts only dev/manual/dogfood", () => {
+    expect(loadApiConfig(REQUIRED).VOSTIVO_DATA_ENV).toBeUndefined();
+    expect(loadApiConfig({ ...REQUIRED, VOSTIVO_DATA_ENV: "dogfood", HOST: "127.0.0.1" }).VOSTIVO_DATA_ENV).toBe("dogfood");
+    expect(() => apiConfigSchema.parse({ ...REQUIRED, VOSTIVO_DATA_ENV: "prod" })).toThrow();
+  });
+
+  it("refuses LOCAL_JWKS_PATH together with VOSTIVO_DATA_ENV=dogfood (real Supabase tokens only)", () => {
+    expect(() => apiConfigSchema.parse({ ...REQUIRED, VOSTIVO_DATA_ENV: "dogfood", HOST: "127.0.0.1", LOCAL_JWKS_PATH: "/tmp/jwks.json" })).toThrow(/LOCAL_JWKS_PATH/);
+    expect(() => apiConfigSchema.parse({ ...REQUIRED, VOSTIVO_DATA_ENV: "manual", LOCAL_JWKS_PATH: "/tmp/jwks.json" })).not.toThrow();
+  });
+});
+
+describe("apiConfigSchema — HOST bind address (Dogfood Environment V1)", () => {
+  const DOGFOOD = { ...REQUIRED, VOSTIVO_DATA_ENV: "dogfood" };
+
+  it("defaults to 0.0.0.0, unchanged for existing dev/manual setups", () => {
+    expect(loadApiConfig(REQUIRED).HOST).toBe("0.0.0.0");
+    expect(loadApiConfig({ ...REQUIRED, VOSTIVO_DATA_ENV: "manual" }).HOST).toBe("0.0.0.0");
+  });
+
+  it("accepts the dogfood runtime config: HOST=127.0.0.1, PORT=4100", () => {
+    const config = loadApiConfig({ ...DOGFOOD, HOST: "127.0.0.1", PORT: "4100" });
+    expect(config.HOST).toBe("127.0.0.1");
+    expect(config.PORT).toBe(4100);
+    expect(loadApiConfig({ ...DOGFOOD, HOST: "::1" }).HOST).toBe("::1");
+  });
+
+  it("refuses dogfood on any non-loopback interface, including the default", () => {
+    for (const host of [undefined, "0.0.0.0", "::", "192.168.1.20"]) {
+      expect(() => apiConfigSchema.parse({ ...DOGFOOD, HOST: host })).toThrow(/HOST=127\.0\.0\.1/);
+    }
+  });
+
+  it("rejects a value that is not an IP address", () => {
+    expect(() => apiConfigSchema.parse({ ...REQUIRED, HOST: "localhost" })).toThrow();
+    expect(() => apiConfigSchema.parse({ ...REQUIRED, HOST: "0.0.0.0; rm" })).toThrow();
+  });
+});

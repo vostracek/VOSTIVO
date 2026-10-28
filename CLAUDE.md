@@ -1774,6 +1774,29 @@ Local Manual E2E Backend: implemented / verified; device runtime pending
 ```
 
 ```text
+Dogfood Environment V1 (Phase A+B): CLOSED (2026-10-28). Separate Postgres instance for real
+                                  data (`infra/dogfood/`, container
+                                  vostivo-dogfood-postgres, volume
+                                  vostivo_dogfood_pgdata, 127.0.0.1:5433,
+                                  DB vostivo_dogfood only, own owner/runtime
+                                  roles, secrets in ~/.config/vostivo/dogfood).
+                                  Guards: VOSTIVO_DATA_ENV + DB name + DB
+                                  marker must agree both ways (API/worker
+                                  startup); integration tests and dev
+                                  tooling refuse dogfood. `pnpm dogfood
+                                  backup` = pg_dump -Fc + sha256 + manifest +
+                                  automatic restore-check into a throwaway
+                                  container; bootstrap takes a fail-closed
+                                  pre-migration backup. Dogfood API binds
+                                  127.0.0.1:4100 only (`HOST`). No reset/drop
+                                  tool for dogfood. Phase C/D: dev Supabase
+                                  project; UUIDv7 + logical-key mapping (no
+                                  UUIDv5, ADR-0006 unchanged).
+                                  No real identity/plan imported yet. Spec:
+                                  docs/development/DOGFOOD-ENVIRONMENT.md.
+```
+
+```text
 Completed foundation:     Monorepo, tooling, CI, all apps/packages
                            scaffolded, health endpoints, SQLCipher-encrypted
                            local DB + key-management boundary (verified on
@@ -2000,7 +2023,8 @@ complete Expert program builder have started.
   native verification evidence. The architectural source of truth
   for _how the repo is built_.
 - **`docs/development/`** — `SETUP.md`: prerequisites, install, running
-  things, quality gates. The practical "how do I run this" reference.
+  things, quality gates. `DOGFOOD-ENVIRONMENT.md`: the isolated real-data
+  instance, its guards, backups and restore-check. The practical "how do I run this" reference.
 - **`docs/domain/`** — locked domain specifications (e.g.
   `load-model-v1.md`). These define product-domain semantics in detail;
   this file intentionally does not duplicate them — read the relevant one

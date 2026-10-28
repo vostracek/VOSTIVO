@@ -5,6 +5,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import helmet from "@fastify/helmet";
 import { createLogger } from "@vostivo/observability";
+import { assertDataEnvironment } from "@vostivo/database";
 import { AppModule } from "./app.module.js";
 import { ErrorEnvelopeFilter } from "./common/filters/error-envelope.filter.js";
 import { registerCorrelationIdHook } from "./common/correlation-id.hook.js";
@@ -14,6 +15,10 @@ import { loadApiConfig } from "./common/config/api-config.js";
 async function bootstrap(): Promise<void> {
   const config = loadApiConfig();
   const logger = createLogger({ serviceName: "vostivo-api" });
+
+  // Dogfood Environment V1 — before any module connects: the declared data
+  // environment and the database's own name/marker must agree both ways.
+  await assertDataEnvironment(config.VOSTIVO_DATA_ENV, config.DATABASE_URL);
 
   // `trustProxy` defaults to false (see api-config.ts) — `request.ip`
   // (what the rate limiter below keys on) is the direct TCP peer address
@@ -60,8 +65,8 @@ async function bootstrap(): Promise<void> {
     SwaggerModule.setup("docs", app, document);
   }
 
-  await app.listen(config.PORT, "0.0.0.0");
-  logger.info("Vostivo API listening", { port: config.PORT, env: config.NODE_ENV });
+  await app.listen(config.PORT, config.HOST);
+  logger.info("Vostivo API listening", { host: config.HOST, port: config.PORT, env: config.NODE_ENV, dataEnv: config.VOSTIVO_DATA_ENV ?? "unset" });
 }
 
 bootstrap().catch((error: unknown) => {

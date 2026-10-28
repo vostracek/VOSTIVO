@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { uuidv7 } from "uuidv7";
 import { createLogger } from "@vostivo/observability";
 import { loadDatabaseConfig } from "./config.js";
+import { assertDevToolingTarget } from "./data-environment.js";
 import * as schema from "./schema/index.js";
 
 /**
@@ -79,6 +80,8 @@ async function main(): Promise<void> {
   const trainingTimeZone = canonicalIanaTimeZone(process.env.TRAINING_TIME_ZONE ?? "Europe/Prague");
 
   const config = loadDatabaseConfig();
+  // A fixture seed wipes programs — never against the dogfood database (real plans arrive via tools/dogfood import only).
+  await assertDevToolingTarget(config.DATABASE_URL, "db:seed:dev-plan");
   const sql = postgres(config.DATABASE_URL);
   const db = drizzle(sql, { schema });
 

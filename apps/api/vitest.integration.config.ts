@@ -8,5 +8,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["src/**/*.integration.test.ts"],
+    setupFiles: ["./vitest.integration.setup.ts"],
   },
 });
