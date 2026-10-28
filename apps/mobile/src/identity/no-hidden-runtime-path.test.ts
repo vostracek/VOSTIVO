@@ -65,6 +65,8 @@ describe("no hidden path around the IdentityGate", () => {
     const client = readFileSync(new URL("src/auth/supabase-auth-client.ts", MOBILE_ROOT), "utf8");
     expect(client).toMatch(/detectSessionInUrl: false/);
     expect(client).toMatch(/new SupabaseAuthSessionSource\(client\.auth/);
+    // RN Android fetch has no timeout: every Supabase Auth request is bounded (no second client).
+    expect(client).toMatch(/global: \{ fetch: createBoundedFetch\(SUPABASE_AUTH_REQUEST_TIMEOUT_MS\) \}/);
   });
 
   it("Auth Slice C: no secret/service-role key name and no ANON_KEY leftover anywhere in the app", () => {

@@ -24,4 +24,23 @@ describe("fetchVerifiedMe — typed by why it failed", () => {
     expect(await fetchVerifiedMe("http://api", "tok", respond(404, {}))).toEqual({ kind: "INVALID_RESPONSE" });
     expect(await fetchVerifiedMe("http://api", "tok", respond(200, { userId: "" }))).toEqual({ kind: "INVALID_RESPONSE" });
   });
+
+  it("an API that accepts the request and never answers -> UNREACHABLE at the deadline, and the request is aborted", async () => {
+    let signal: AbortSignal | undefined;
+    const hanging: FetchFunction = (_url, init) => {
+      signal = init.signal;
+      return new Promise(() => {});
+    };
+    expect(await fetchVerifiedMe("http://api", "tok", hanging, 20)).toEqual({ kind: "UNREACHABLE" });
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("headers arrive but the body never does -> UNREACHABLE (one deadline covers request + body)", async () => {
+    const stalledBody: FetchFunction = () => Promise.resolve({ ok: true, status: 200, json: () => new Promise(() => {}) });
+    expect(await fetchVerifiedMe("http://api", "tok", stalledBody, 20)).toEqual({ kind: "UNREACHABLE" });
+  });
+
+  it("an answer before the deadline keeps its HTTP meaning (401 is never turned into UNREACHABLE)", async () => {
+    expect(await fetchVerifiedMe("http://api", "tok", respond(401, {}), 1_000)).toEqual({ kind: "UNAUTHORIZED" });
+  });
 });

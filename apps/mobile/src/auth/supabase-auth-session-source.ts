@@ -2,7 +2,11 @@ import { isAuthApiError, isAuthRetryableFetchError, type AuthChangeEvent, type A
 import { SUPABASE_PROVIDER, SessionStorageUnavailableError, type AuthSession, type AuthSessionSource, type SessionLoss } from "../identity/auth-session";
 import type { AppLifecycleSource } from "../infrastructure/sync-recovery";
 import { AuthServiceUnavailableError, type UnauthorizedRecovery } from "../workout/auth-token-provider";
+import { RequestTimeoutError, withRequestTimeout } from "../infrastructure/request-timeout";
 import { mapAuthError, type AuthErrorCode } from "./auth-errors";
+
+/** How long a session read waits for the SDK before answering with the stored session's identity. */
+export const SUPABASE_SESSION_READ_TIMEOUT_MS = 3_000;
 
 /**
  * The subset of `supabase.auth` this app uses — an interface so the source
@@ -54,7 +58,9 @@ export interface EmailOtpSignIn {
  * - Offline with an expired access token the SDK reports no session but
  *   keeps it stored; the stored identity is returned so a VERIFIED binding
  *   may open that owner's data offline (Slice B rules) — `/me` and sync
- *   still need the network.
+ *   still need the network. The same fallback answers a session read the
+ *   SDK has not finished within `SUPABASE_SESSION_READ_TIMEOUT_MS` (it
+ *   retries an offline refresh for up to 30 s), so boot is never held by it.
  * - 401 recovery is single-flight: concurrent refused requests share ONE
  *   `refreshSession()`; a network failure is `AuthServiceUnavailableError`,
  *   never an invalid session.
@@ -74,6 +80,7 @@ export class SupabaseAuthSessionSource implements AuthSessionSource, EmailOtpSig
     private readonly auth: SupabaseAuthPort,
     private readonly readStoredSession: () => Promise<StoredSessionIdentity | null>,
     private readonly schedule: (task: () => void) => void = (task) => setTimeout(task, 0),
+    private readonly sessionReadTimeoutMs = SUPABASE_SESSION_READ_TIMEOUT_MS,
   ) {
     this.sdkSubscription = auth.onAuthStateChange((event, session) => this.onSdkEvent(event, session)).data.subscription;
   }
@@ -85,14 +92,18 @@ export class SupabaseAuthSessionSource implements AuthSessionSource, EmailOtpSig
 
   async getSession(): Promise<AuthSession | null> {
     if (this.invalidated) return null;
-    const { data, error } = await this.auth.getSession().catch((thrown: unknown) => {
+    let result: Awaited<ReturnType<SupabaseAuthPort["getSession"]>>;
+    try {
+      result = await withRequestTimeout(this.sessionReadTimeoutMs, () => this.auth.getSession());
+    } catch (thrown) {
+      // The SDK is still recovering the stored session (an expired token offline is retried for up to 30 s):
+      // answer with the stored identity now; the SDK's later TOKEN_REFRESHED / SIGNED_OUT re-runs the gate.
+      if (thrown instanceof RequestTimeoutError) return this.storedSession();
       throw thrown instanceof SessionStorageUnavailableError ? thrown : new SessionStorageUnavailableError();
-    });
-    if (data.session !== null) return toAuthSession(data.session.user.id, data.session.access_token);
-    if (error !== null && isAuthServiceUnreachable(error)) {
-      const stored = await this.readStoredSession();
-      return stored === null ? null : toAuthSession(stored.subject, stored.accessToken);
     }
+    const { data, error } = result;
+    if (data.session !== null) return toAuthSession(data.session.user.id, data.session.access_token);
+    if (error !== null && isAuthServiceUnreachable(error)) return this.storedSession();
     return null;
   }
 
@@ -160,6 +171,12 @@ export class SupabaseAuthSessionSource implements AuthSessionSource, EmailOtpSig
   dispose(): void {
     this.sdkSubscription.unsubscribe();
     this.listeners.clear();
+  }
+
+  /** Offline fallback only: the persisted session's identity, or null (no session -> nothing can be opened). */
+  private async storedSession(): Promise<AuthSession | null> {
+    const stored = await this.readStoredSession();
+    return stored === null ? null : toAuthSession(stored.subject, stored.accessToken);
   }
 
   private async refreshOnce(): Promise<UnauthorizedRecovery> {

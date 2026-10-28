@@ -16,7 +16,7 @@ import { IdentityBindingStore } from "./identity-binding-store";
 import { IdentityGateController, type IdentityGateState } from "./identity-gate-controller";
 import { resolveIdentity } from "./identity-resolution";
 import { readUnverifiedJwtSubject } from "./jwt-subject";
-import type { VerifiedMeOutcome } from "./verified-me-client";
+import { fetchVerifiedMe, type VerifiedMeOutcome } from "./verified-me-client";
 import { ControllableSessionSource } from "./testing/controllable-session-source";
 import { devToken, InMemorySecureValueStore } from "./testing/fakes";
 
@@ -33,6 +33,8 @@ import { devToken, InMemorySecureValueStore } from "./testing/fakes";
 const A = { userId: "0190a000-0000-7000-8000-00000000000a", athleteProfileId: "0190a000-0000-7000-8000-0000000000aa" };
 const B = { userId: "0190a000-0000-7000-8000-00000000000b", athleteProfileId: "0190a000-0000-7000-8000-0000000000bb" };
 const USERS_BY_SUBJECT: Record<string, typeof A> = { "sub-a": A, "sub-b": B };
+/** The bounded `/me` deadline used when the backend hangs (the app uses `VERIFIED_ME_TIMEOUT_MS`). */
+const HANGING_ME_TIMEOUT_MS = 20;
 
 function session(subject: "sub-a" | "sub-b", nonce = "1"): AuthSession {
   return { provider: SUPABASE_PROVIDER, providerSubject: subject, accessToken: devToken(subject, nonce) };
@@ -91,6 +93,10 @@ class Device {
   readonly server = new FakeServer();
   /** `/me` reachability (independent of the sync endpoint). */
   meOnline = true;
+  /** The API accepts `/me` and never answers — served by the REAL bounded `/me` client. */
+  meHangs = false;
+  /** Server-side subject -> user mapping changes (a remapped subject is a binding conflict on the device). */
+  readonly meRemap = new Map<string, typeof A>();
   readonly openedFiles: string[] = [];
   readonly openHandles = new Set<string>();
 
@@ -151,9 +157,11 @@ class AppProcess {
     this.source = new ControllableSessionSource(initial);
     const bindings = new IdentityBindingStore(device.secureStore);
     const fetchMe = (accessToken: string): Promise<VerifiedMeOutcome> => {
+      if (device.meHangs) return fetchVerifiedMe("http://api.invalid", accessToken, () => new Promise(() => {}), HANGING_ME_TIMEOUT_MS);
       if (!device.meOnline) return Promise.resolve({ kind: "UNREACHABLE" });
       if (device.server.revokedTokens.has(accessToken)) return Promise.resolve({ kind: "UNAUTHORIZED" });
-      const user = USERS_BY_SUBJECT[readUnverifiedJwtSubject(accessToken) ?? ""];
+      const subject = readUnverifiedJwtSubject(accessToken) ?? "";
+      const user = device.meRemap.get(subject) ?? USERS_BY_SUBJECT[subject];
       return Promise.resolve(user === undefined ? { kind: "UNAUTHORIZED" } : { kind: "VERIFIED", ...user });
     };
     this.controller = new IdentityGateController<AthleteRuntime>({
@@ -526,6 +534,102 @@ describe("Auth & Local Athlete Boundary V1 Slice B — cross-athlete local isola
     await app.settle();
     expect(app.state).toEqual({ status: "NEEDS_NETWORK" });
     expect(device.openedFiles).toEqual([]);
+  });
+
+  describe("bounded boot: the API accepts /me and never answers (real `fetchVerifiedMe` deadline)", () => {
+    it("a known owner boots READY / OFFLINE_BINDING with sync off; Active Workout works; no outbox command leaves before an online /me", async () => {
+      device.server.online = false;
+      const first = device.launch(session("sub-a"));
+      await first.settle();
+      const sessionId = await startAndLogFirstSet(first.runtime);
+      await first.kill();
+      const pending = device.outboxRows(A.userId);
+
+      device.meHangs = true;
+      device.server.online = true; // the sync endpoint would answer — the gate must still not release the outbox
+      const relaunched = device.launch(session("sub-a", "relaunch"));
+      await relaunched.settle();
+      expect(relaunched.state).toMatchObject({ status: "READY", verification: "OFFLINE_BINDING", identity: A });
+      expect((await relaunched.runtime.workoutApplicationService.getActiveWorkoutSession())?.id).toBe(sessionId);
+      await expect(relaunched.runtime.workoutApplicationService.syncPendingWorkoutCommands()).rejects.toBeInstanceOf(SyncNotPermittedError);
+      expect(device.server.batches).toEqual([]);
+      expect(device.outboxRows(A.userId)).toEqual(pending);
+    });
+
+    it("then /me answers VERIFIED for the same userId -> ONLINE in the same runtime, each pending command synced exactly once", async () => {
+      device.server.online = false;
+      const first = device.launch(session("sub-a"));
+      await first.settle();
+      const sessionId = await startAndLogFirstSet(first.runtime);
+      await first.kill();
+      const pending = device.outboxRows(A.userId);
+
+      device.meHangs = true;
+      device.server.online = true;
+      const relaunched = device.launch(session("sub-a", "relaunch"));
+      await relaunched.settle();
+      const runtime = relaunched.runtime;
+
+      device.meHangs = false;
+      await relaunched.network(true);
+      expect(relaunched.state).toMatchObject({ status: "READY", verification: "ONLINE", auth: "VALID", identity: A });
+      expect(relaunched.runtime).toBe(runtime);
+      await runtime.workoutApplicationService.syncPendingWorkoutCommands();
+      expect(device.server.batches.flatMap((batch) => batch.commandIds)).toEqual(pending.map((row) => row.command_id));
+      expect(device.server.batches.every((batch) => batch.actorUserId === A.userId && batch.ownerUserId === A.userId)).toBe(true);
+      expect(device.server.sessionOwners.get(sessionId)).toBe(A.userId);
+    });
+
+    it("then /me answers 401 -> REAUTH_REQUIRED, the SAME runtime is kept and sync stays off", async () => {
+      device.server.online = false;
+      const first = device.launch(session("sub-a"));
+      await first.settle();
+      await startAndLogFirstSet(first.runtime);
+      await first.kill();
+
+      device.meHangs = true;
+      const relaunched = device.launch(session("sub-a", "relaunch"));
+      await relaunched.settle();
+      const runtime = relaunched.runtime;
+
+      device.meHangs = false;
+      device.server.revokedTokens.add(session("sub-a", "relaunch").accessToken);
+      device.server.online = true;
+      await relaunched.network(true);
+      expect(relaunched.state).toMatchObject({ status: "READY", identity: A, auth: "REAUTH_REQUIRED" });
+      expect(relaunched.runtime).toBe(runtime);
+      await expect(runtime.workoutApplicationService.syncPendingWorkoutCommands()).rejects.toBeInstanceOf(SyncNotPermittedError);
+      expect(device.server.batches).toEqual([]);
+    });
+
+    it("then /me maps the subject to ANOTHER userId -> BINDING_CONFLICT, the offline runtime is disposed (fail closed)", async () => {
+      device.server.online = false;
+      const first = device.launch(session("sub-a"));
+      await first.settle();
+      await startAndLogFirstSet(first.runtime);
+      await first.kill();
+
+      device.meHangs = true;
+      const relaunched = device.launch(session("sub-a", "relaunch"));
+      await relaunched.settle();
+      expect(relaunched.state).toMatchObject({ status: "READY", verification: "OFFLINE_BINDING" });
+
+      device.meHangs = false;
+      device.meRemap.set("sub-a", B);
+      device.server.online = true;
+      await relaunched.network(true);
+      expect(relaunched.state).toEqual({ status: "IDENTITY_ERROR", reason: "BINDING_CONFLICT" });
+      expect(device.openHandles.size).toBe(0);
+      expect(device.server.batches).toEqual([]);
+    });
+
+    it("an unknown subject whose /me times out -> NEEDS_NETWORK and NO database is opened", async () => {
+      device.meHangs = true;
+      const app = device.launch(session("sub-b"));
+      await app.settle();
+      expect(app.state).toEqual({ status: "NEEDS_NETWORK" });
+      expect(device.openedFiles).toEqual([]);
+    });
   });
 
   it("CRASH DURING SWITCH: A disposed, process dies before B opens -> relaunch as B opens B's file; A's file and outbox are untouched", async () => {

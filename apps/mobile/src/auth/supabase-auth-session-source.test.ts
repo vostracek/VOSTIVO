@@ -17,6 +17,9 @@ class FakeSupabaseAuth implements SupabaseAuthPort {
   session: Session | null = null;
   getSessionError: AuthError | null = null;
   getSessionThrows: unknown = undefined;
+  /** The SDK is still inside its initialize/refresh retry loop: getSession() does not answer until settled. */
+  holdGetSession = false;
+  private readonly heldGetSessions: { resolve: (value: { data: { session: Session | null }; error: AuthError | null }) => void; reject: (error: unknown) => void }[] = [];
   refreshResult: { session: Session | null; error: AuthError | null } = { session: null, error: null };
   refreshCalls = 0;
   private releaseRefresh: (() => void) | undefined;
@@ -38,7 +41,16 @@ class FakeSupabaseAuth implements SupabaseAuthPort {
     this.releaseRefresh?.();
   }
 
+  /** Settles every held getSession() — late, after the source already answered from storage. */
+  settleHeldGetSessions(outcome: { session: Session | null } | { reject: unknown }): void {
+    for (const held of this.heldGetSessions.splice(0)) {
+      if ("reject" in outcome) held.reject(outcome.reject);
+      else held.resolve({ data: { session: outcome.session }, error: null });
+    }
+  }
+
   getSession() {
+    if (this.holdGetSession) return new Promise<{ data: { session: Session | null }; error: AuthError | null }>((resolve, reject) => this.heldGetSessions.push({ resolve, reject }));
     if (this.getSessionThrows !== undefined) return Promise.reject(this.getSessionThrows);
     return Promise.resolve({ data: { session: this.session }, error: this.getSessionError });
   }
@@ -85,10 +97,13 @@ class FakeSupabaseAuth implements SupabaseAuthPort {
   }
 }
 
+/** A small session-read deadline so the hanging-SDK tests run in real time (the app uses `SUPABASE_SESSION_READ_TIMEOUT_MS`). */
+const TEST_SESSION_READ_TIMEOUT_MS = 20;
+
 function harness(stored: { subject: string; accessToken: string } | null = null) {
   const auth = new FakeSupabaseAuth();
   const tasks: (() => void)[] = [];
-  const source = new SupabaseAuthSessionSource(auth, () => Promise.resolve(stored), (task) => tasks.push(task));
+  const source = new SupabaseAuthSessionSource(auth, () => Promise.resolve(stored), (task) => tasks.push(task), TEST_SESSION_READ_TIMEOUT_MS);
   let notifications = 0;
   source.subscribe(() => (notifications += 1));
   const flush = () => {
@@ -199,6 +214,60 @@ describe("SupabaseAuthSessionSource", () => {
     // Without a network failure, no stored session is ever resurrected.
     auth.getSessionError = null;
     expect(await source.getSession()).toBeNull();
+  });
+
+  describe("bounded session read: the SDK has not answered getSession() within the deadline", () => {
+    it("answers with the stored identity instead of waiting for the SDK's offline refresh retries", async () => {
+      const { auth, source } = harness({ subject: "user-a", accessToken: "stored-token" });
+      auth.holdGetSession = true;
+      expect(await source.getSession()).toEqual({ provider: "supabase", providerSubject: "user-a", accessToken: "stored-token" });
+    });
+
+    it("no stored session -> null (nothing can be opened)", async () => {
+      const { auth, source } = harness(null);
+      auth.holdGetSession = true;
+      expect(await source.getSession()).toBeNull();
+    });
+
+    it("a late SDK rejection after the fallback is swallowed (no unhandled rejection)", async () => {
+      const { auth, source } = harness({ subject: "user-a", accessToken: "stored-token" });
+      auth.holdGetSession = true;
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => unhandled.push(reason);
+      process.on("unhandledRejection", onUnhandled);
+      try {
+        expect(await source.getSession()).toMatchObject({ providerSubject: "user-a" });
+        auth.settleHeldGetSessions({ reject: new Error("late SDK failure") });
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off("unhandledRejection", onUnhandled);
+      }
+    });
+
+    it("a later TOKEN_REFRESHED notifies the gate and the next read returns the refreshed token", async () => {
+      const { auth, source, flush } = harness({ subject: "user-a", accessToken: "stored-token" });
+      auth.holdGetSession = true;
+      expect(await source.getSession()).toMatchObject({ accessToken: "stored-token" });
+      const refreshed = supabaseSession("user-a", "refreshed-token");
+      auth.emit("TOKEN_REFRESHED", refreshed);
+      auth.settleHeldGetSessions({ session: refreshed });
+      auth.holdGetSession = false;
+      expect(flush()).toBe(1);
+      expect(await source.getSession()).toEqual({ provider: "supabase", providerSubject: "user-a", accessToken: "refreshed-token" });
+    });
+
+    it("a later SIGNED_OUT (refresh refused) is a SESSION_INVALID loss and the next read is null", async () => {
+      const { auth, source, flush } = harness({ subject: "user-a", accessToken: "stored-token" });
+      auth.holdGetSession = true;
+      expect(await source.getSession()).toMatchObject({ accessToken: "stored-token" });
+      auth.emit("SIGNED_OUT", null);
+      auth.settleHeldGetSessions({ session: null });
+      auth.holdGetSession = false;
+      expect(flush()).toBe(1);
+      expect(source.sessionLoss()).toBe("SESSION_INVALID");
+      expect(await source.getSession()).toBeNull();
+    });
   });
 
   it("AUTH-022: a storage failure surfaces as SessionStorageUnavailableError (not 'signed out')", async () => {

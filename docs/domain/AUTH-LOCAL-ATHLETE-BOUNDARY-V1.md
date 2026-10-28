@@ -1063,13 +1063,41 @@ Acceptance findings (2026-10-26 triage; none blocks Slice C closure):
   on the session refresh / `/me` path at boot; on poor gym connectivity
   this could be longer. Data stayed correct; investigate + add a bounded
   timeout before release.
+  **Phase 1 bounded timeouts (2026-10-28, not yet committed):** root cause
+  was supabase-js holding `getSession()` while it retried the offline
+  refresh of an expired token (backoff up to ~30 s), plus no timeout at all
+  on RN Android `fetch` (an API that accepts and never answers hung boot
+  > 5 min). Now: `/me` <= 5 s (`VERIFIED_ME_TIMEOUT_MS`, request + body ->
+  `UNREACHABLE`), the gate's session read <= 3 s
+  (`SUPABASE_SESSION_READ_TIMEOUT_MS`, then the stored session's identity —
+  the same offline fallback as before; later TOKEN_REFRESHED/SIGNED_OUT run
+  the normal flow), every Supabase Auth request <= 8 s
+  (`SUPABASE_AUTH_REQUEST_TIMEOUT_MS`, `global.fetch` of the single
+  client). No binding / SyncPermit / gate-order change. Emulator, launch ->
+  Today (JS main -> Today): online 5.6-6.1 s (2.8-3.0 s); offline + expired
+  token 9.1-9.3 s (6.4-6.5 s), was 30.1-31.5 s (26.2-28.3 s); API
+  blackhole 9.3-11.3 s (6.5-8.5 s), was > 5 min. Not done (Phase 2
+  candidate): an instant OFFLINE_BINDING boot that does not wait for the
+  3 s session read at all.
+  Measurement caveat: the debug APK embeds `assets/index.android.bundle`;
+  with wifi/data off the emulator cannot reach the packager at `10.0.2.2`
+  and silently runs that embedded (build-time) bundle. Offline measurements
+  of current code need the RN dev setting `debug_http_host=localhost:8081`
+  (served over `adb reverse`).
 - FOLLOW-UP, medium (not Slice C): `parseLoadInput` rejects a decimal comma
-  (`42,5`), which a Czech-locale `decimal-pad` keyboard can offer.
+  (`42,5`), which a Czech-locale `decimal-pad` keyboard can offer. FIXED for
+  Active Workout (2026-10-26, `f7f3a74`); Loading Setup still open.
 - NON-BLOCKER, UI polish: the "Sign in again to sync" pill (absolute,
   top 44) overlaps the Active Workout header and touches Today's title.
-- NON-BLOCKER, watch: one native SIGSEGV in RN Fabric
-  `MountingCoordinator::pullTransaction` on the first offline launch of the
-  debug APK; not reproduced, no data written or lost.
+- WATCH, now reproducible (not fixed): native SIGSEGV in RN Fabric
+  `MountingCoordinator::pullTransaction` (`libreactnative.so`, JS thread
+  `mqt_v_js`) during offline boots of the debug APK, right when the first
+  screen mounts. First seen on acceptance F; again 1 of 5 offline +
+  expired-token boots (2026-10-26, embedded bundle), 1 of 4 (2026-10-26,
+  Metro bundle) and 2 of 5 (2026-10-28, Phase 1 code; one `SEGV_MAPERR`
+  at 0x4, one `SEGV_ACCERR`). Never seen online. No data written or lost;
+  relaunch works. Needs its own investigation (RN version / release build)
+  before beta.
 - ENVIRONMENT (not product): the Android emulator must run with
   `-no-snapshot`; with Quickboot save enabled its file-backed guest RAM
   wrote ~64 MB/s to the host SSD and froze the desktop.

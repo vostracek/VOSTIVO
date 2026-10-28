@@ -1815,9 +1815,12 @@ Current known tech debt:  ESLint major-version split (web/mobile on 9.x);
                            2026-10-26, but Loading Setup's "Weight step" /
                            "Available weights" still reject `2,5` — the list
                            uses `,` as its separator, needs its own locale
-                           decision; no bounded timeout on offline
-                           boot, re-auth pill overlap, one unreproduced
-                           Fabric SIGSEGV);
+                           decision; offline-boot timeouts bounded
+                           (Phase 1, 2026-10-28, uncommitted: offline +
+                           expired token ~9 s instead of ~30 s, hung API
+                           ~10 s instead of > 5 min), re-auth pill overlap,
+                           a Fabric `MountingCoordinator` SIGSEGV now
+                           reproducible on offline boots (~1 in 3-5));
                            `apps/mobile` requires `metro.config.js`'s
                            `unstable_enableSymlinks: true` for pnpm's
                            nested workspace symlinks (expo-doctor flags
