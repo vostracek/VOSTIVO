@@ -96,6 +96,31 @@ Never run `docker compose ... down -v` on the dogfood project — the volume is 
 - **IDs**: ADR-0006 stays unchanged — every new domain entity gets a UUIDv7 via
   `createEntityId()`; UUIDv5 was rejected.
 
+## Identity import (Phase C)
+
+Moves exactly one real identity from `vostivo_manual` into the empty dogfood
+database with the same UUIDs: one row each in `users`, `auth_identities` and
+`athlete_profiles`. No training data. Same subject + same `users.id` means the
+device binding never hits `BINDING_CONFLICT`.
+
+```bash
+pnpm dogfood:export-identity --subject-prefix=<hex> --expect-user-id=<uuid>   # read-only, writes ~/VostivoBackups/dogfood/identity/
+pnpm dogfood:import-identity --snapshot=<path>            # dry-run (default), writes nothing
+pnpm dogfood:import-identity --snapshot=<path> --apply
+```
+
+`--apply`: validate snapshot -> classify (`IMPORTABLE` / `ALREADY_IMPORTED` /
+`COLLISION`) -> refuse live `vostivo_dogfood_api` connections -> `pre-import`
+backup + restore-check -> one transaction (table locks, re-classify, insert,
+exact re-read, rollback on any difference) -> verification after commit.
+A repeated run is an `ALREADY_IMPORTED` no-op. There is no overwrite or delete path.
+
+Never authenticate against the dogfood API before the import: `resolveOrCreateIdentity`
+would auto-provision the subject under a new UUID, which is a `COLLISION`. The
+dogfood client is only a clean iPhone install; acceptance AVDs never connect to
+the dogfood API (local DBs are keyed by `userId`, so their acceptance data and
+outbox would reach dogfood).
+
 ## Future: plan import (Phase D, not implemented)
 
 `tools/dogfood` import: dry-run by default, explicit `--apply`; idempotent via

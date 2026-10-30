@@ -16,6 +16,17 @@ import {
   DOGFOOD_DATABASE_NAME,
   readDatabaseIdentity,
 } from "../data-environment.js";
+import {
+  assertIdentitySource,
+  buildIdentitySnapshot,
+  IdentityImportCollisionError,
+  maskSubject,
+  runIdentityImport,
+  validateIdentitySnapshot,
+  type IdentityImportOutcome,
+  type IdentitySnapshot,
+} from "./identity-import.js";
+import { applyIdentityRows, countRoleConnections, readDogfoodIdentityState, readSourceIdentityRows, verifyImportedIdentity } from "./identity-import-sql.js";
 import { migrateBehindPreMigrationBackup } from "./migration-gate.js";
 import { backupBaseName, compareWithManifest, MANIFEST_VERSION, parseBackupBaseName, type BackupManifest, type RestoreVerification } from "./manifest.js";
 import { BACKUP_REASONS, decideRetention, type BackupEntry, type BackupReason } from "./retention.js";
@@ -517,7 +528,82 @@ export async function status(): Promise<void> {
   logger.info("Backups", { dir: DOGFOOD_BACKUP_DIR, count: backups.length, newest: backups[0]?.baseName ?? null, newestVerified: backups.find((b) => b.verified)?.baseName ?? null });
 }
 
+// ---------------------------------------------------------------- identity import (Phase C)
+
+const IDENTITY_DIR = join(DOGFOOD_BACKUP_DIR, "identity");
+
+/** Read-only against `vostivo_manual`; writes one reviewable snapshot outside the repo. Never touches dogfood. */
+export async function exportIdentity(subjectPrefix: string | undefined, expectedUserId: string | undefined): Promise<string> {
+  if (subjectPrefix === undefined || !/^[0-9a-f]{8,36}$/.test(subjectPrefix.replace(/-/g, "")) || expectedUserId === undefined) {
+    throw new Error("export-identity requires --subject-prefix=<at least 8 hex chars> and --expect-user-id=<uuid>.");
+  }
+  const sourceUrl = parseEnvFile(await readFile(join(REPOSITORY_ROOT, "apps", "api", ".env"), "utf8")).DATABASE_URL;
+  if (sourceUrl === undefined) throw new Error("apps/api/.env has no DATABASE_URL.");
+  assertIdentitySource(sourceUrl);
+
+  const sql = postgres(sourceUrl, { max: 1, onnotice: () => undefined });
+  let snapshot: IdentitySnapshot;
+  try {
+    snapshot = buildIdentitySnapshot(await readSourceIdentityRows(sql, subjectPrefix, expectedUserId), new Date());
+  } finally {
+    await sql.end();
+  }
+  const problems = validateIdentitySnapshot(snapshot);
+  if (problems.length > 0) throw new IdentityImportCollisionError(problems);
+
+  await prepareBackupDir();
+  await mkdir(IDENTITY_DIR, { recursive: true, mode: 0o700 });
+  await chmod(IDENTITY_DIR, 0o700);
+  const path = join(IDENTITY_DIR, `identity-${snapshot.user.id}.json`);
+  await rm(path, { force: true });
+  await writeSecretFile(path, [JSON.stringify(snapshot, null, 2)]);
+  logger.info("Identity snapshot written", { path, subject: maskSubject(snapshot.authIdentity.providerSubject), userId: snapshot.user.id, athleteProfileId: snapshot.athleteProfile.id, sha256: snapshot.sha256 });
+  return path;
+}
+
+/** Dry-run unless `apply`. See `runIdentityImport` for the order of the safety steps. */
+export async function importIdentity(snapshotPath: string | undefined, apply: boolean): Promise<IdentityImportOutcome> {
+  if (snapshotPath === undefined) throw new Error("import-identity requires --snapshot=<path> (from export-identity).");
+  const snapshot = JSON.parse(await readFile(snapshotPath, "utf8")) as IdentitySnapshot;
+  const config = await loadAdminConfig();
+  await assertDataEnvironment("dogfood", config.adminDatabaseUrl);
+
+  const sql = postgres(config.adminDatabaseUrl, { max: 1, onnotice: () => undefined });
+  try {
+    const outcome = await runIdentityImport({
+      snapshot,
+      apply,
+      readState: () => readDogfoodIdentityState(sql, snapshot),
+      assertNoRuntimeConnections: async () => {
+        const connections = await countRoleConnections(sql, DOGFOOD_RUNTIME_ROLE);
+        if (connections > 0) throw new IdentityImportCollisionError([`${connections} live ${DOGFOOD_RUNTIME_ROLE} connections — stop the dogfood API and worker first`]);
+      },
+      backupAndVerify: async () => {
+        await verifyBackup(await createBackup("pre-import"));
+      },
+      applyTransaction: () => applyIdentityRows(sql, snapshot),
+      verifyAfterCommit: () => verifyImportedIdentity(sql, snapshot),
+    });
+    logger.info("Identity import result", {
+      outcome,
+      mode: apply ? "apply" : "dry-run",
+      subject: maskSubject(snapshot.authIdentity.providerSubject),
+      userId: snapshot.user.id,
+      authIdentityId: snapshot.authIdentity.id,
+      athleteProfileId: snapshot.athleteProfile.id,
+      rows: { users: 1, auth_identities: 1, athlete_profiles: 1 },
+    });
+    return outcome;
+  } finally {
+    await sql.end();
+  }
+}
+
 // ---------------------------------------------------------------- CLI
+
+function flagValue(args: readonly string[], flag: string): string | undefined {
+  return args.find((arg) => arg.startsWith(`${flag}=`))?.slice(flag.length + 1);
+}
 
 async function main(argv: readonly string[]): Promise<void> {
   const [command, ...rest] = argv;
@@ -545,8 +631,14 @@ async function main(argv: readonly string[]): Promise<void> {
       return prune(rest.includes("--apply"));
     case "status":
       return status();
+    case "export-identity":
+      await exportIdentity(flagValue(rest, "--subject-prefix"), flagValue(rest, "--expect-user-id"));
+      return;
+    case "import-identity":
+      await importIdentity(flagValue(rest, "--snapshot"), rest.includes("--apply"));
+      return;
     default:
-      throw new Error("Usage: pnpm dogfood <init-config|up|bootstrap|backup [--reason=manual|daily|pre-migration|pre-import] [--no-verify]|verify [--latest|<dump>]|prune [--apply]|status>");
+      throw new Error("Usage: pnpm dogfood <init-config|up|bootstrap|backup [--reason=manual|daily|pre-migration|pre-import] [--no-verify]|verify [--latest|<dump>]|prune [--apply]|status|export-identity --subject-prefix=<hex> --expect-user-id=<uuid>|import-identity --snapshot=<path> [--apply]>");
   }
 }
 

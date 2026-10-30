@@ -21,6 +21,8 @@
     "db:bootstrap-roles": "pnpm --filter @vostivo/database db:bootstrap-roles",
     "db:bootstrap-pgboss": "pnpm --filter @vostivo/database db:bootstrap-pgboss",
     "dogfood": "pnpm --silent --filter @vostivo/database dogfood",
+    "dogfood:export-identity": "pnpm --silent --filter @vostivo/database dogfood:export-identity",
+    "dogfood:import-identity": "pnpm --silent --filter @vostivo/database dogfood:import-identity",
     "dogfood:api": "cd apps/api && node --env-file=\"$HOME/.config/vostivo/dogfood/runtime.env\" dist/main.js",
     "dogfood:worker": "cd apps/worker && node --env-file=\"$HOME/.config/vostivo/dogfood/runtime.env\" dist/main.js",
     "boundaries:check": "depcruise --config .dependency-cruiser.cjs packages apps/api/src apps/worker/src"

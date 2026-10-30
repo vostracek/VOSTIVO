@@ -22,7 +22,9 @@
     "db:bootstrap-pgboss": "tsx src/bootstrap-pgboss.ts",
     "db:seed:dev-plan": "tsx src/seed-dev-plan.ts",
     "db:manual:reset": "tsx src/bootstrap-manual-db.ts",
-    "dogfood": "tsx src/dogfood/dogfood-cli.ts"
+    "dogfood": "tsx src/dogfood/dogfood-cli.ts",
+    "dogfood:export-identity": "tsx src/dogfood/dogfood-cli.ts export-identity",
+    "dogfood:import-identity": "tsx src/dogfood/dogfood-cli.ts import-identity"
   },
   "dependencies": {
     "@vostivo/config": "workspace:*",
