@@ -72,7 +72,7 @@ Never run `docker compose ... down -v` on the dogfood project — the volume is 
   credentials), `.verify.json` (restore-check result).
 - Counts and dump come from the **same snapshot** (`pg_export_snapshot()` +
   `pg_dump --snapshot`).
-- Reasons: `manual`, `daily`, `pre-migration`, `pre-import` (reserved for the
+- Reasons: `manual`, `daily`, `pre-migration`, `pre-import` (identity import,
   future plan-import tool).
 - **Migration gate** (`dogfood/migration-gate.ts`): with pending migrations on
   a schema that already has applied migrations, `bootstrap` writes a

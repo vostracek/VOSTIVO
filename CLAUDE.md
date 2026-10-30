@@ -1792,8 +1792,14 @@ Dogfood Environment V1 (Phase A+B): CLOSED (2026-10-28). Separate Postgres insta
                                   tool for dogfood. Phase C/D: dev Supabase
                                   project; UUIDv7 + logical-key mapping (no
                                   UUIDv5, ADR-0006 unchanged).
-                                  No real identity/plan imported yet. Spec:
-                                  docs/development/DOGFOOD-ENVIRONMENT.md.
+                                  Spec: docs/development/DOGFOOD-ENVIRONMENT.md.
+Dogfood Identity Import (Phase C): CLOSED (2026-10-30). One real identity
+                                  imported with the same UUIDs (users,
+                                  auth_identities, athlete_profiles; no
+                                  training data) via `pnpm
+                                  dogfood:import-identity`, behind a verified
+                                  pre-import backup. No plan imported yet
+                                  (Phase D); no client has connected.
 ```
 
 ```text
