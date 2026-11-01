@@ -4,7 +4,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import {
   athleteProfiles,
   availableTimeApplications,
-  createDatabaseClient,
+  createDatabaseClient as openDatabaseClient,
   equipmentAdaptationApplications,
   exerciseLoadingCapabilityBindings,
   gymProfiles,
@@ -45,6 +45,13 @@ import { EquipmentAdaptationApplyService } from "../plan/equipment-adaptation-ap
 import { decodeProgressCursor, encodeProgressCursor } from "./progress-cursor.js";
 import { ProgressReadService } from "./progress-read.service.js";
 import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
+import { createTestDatabaseClients } from "../../../../packages/test-fixtures/src/test-database-clients.js";
+
+const testDatabaseClients = createTestDatabaseClients(openDatabaseClient);
+const createDatabaseClient = testDatabaseClients.create;
+
+// Top-level, so it runs after each describe's own afterEach cleanup.
+afterEach(() => testDatabaseClients.closeAll());
 
 /**
  * Progress & Feedback V1 — Slice A — real Postgres. Service-level (this

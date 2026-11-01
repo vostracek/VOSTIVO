@@ -1,8 +1,8 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
 import {
-  createDatabaseClient,
+  createDatabaseClient as openDatabaseClient,
   performedExercises,
   performedSets,
   programVersions,
@@ -26,6 +26,13 @@ import type { CompleteSetCommandV1, FinishWorkoutSessionCommandV1, ReopenSetComm
 import { ensureProgressionEvaluateSessionQueues, ProgressionEvaluationService, WorkoutHistoryService } from "@vostivo/progression-application";
 import { processWorkoutCommand } from "./workout-command-processing.js";
 import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
+import { createTestDatabaseClients } from "../../../../packages/test-fixtures/src/test-database-clients.js";
+
+const testDatabaseClients = createTestDatabaseClients(openDatabaseClient);
+const createDatabaseClient = testDatabaseClients.create;
+
+// Top-level, so it runs after each describe's own afterEach cleanup.
+afterEach(() => testDatabaseClients.closeAll());
 
 /**
  * Real Postgres integration tests for Progression EngineDecision

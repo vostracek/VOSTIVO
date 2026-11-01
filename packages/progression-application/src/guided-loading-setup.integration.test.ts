@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import {
   athleteProfiles,
-  createDatabaseClient,
+  createDatabaseClient as openDatabaseClient,
   exerciseLoadingCapabilityBindings,
   gymProfiles,
   loadingCapabilities,
@@ -28,6 +28,13 @@ import { ensureApplicationForDecision } from "./progression-application.js";
 import { applySystemProgression } from "./progression-application-apply.js";
 import { getGuidedLoadingSetupAttention, getLoadingSetupContext, saveGuidedLoadingSetup } from "./guided-loading-setup.js";
 import { requireDisposableDatabaseUrl } from "../../test-fixtures/src/assert-disposable-test-database.js";
+import { createTestDatabaseClients } from "../../test-fixtures/src/test-database-clients.js";
+
+const testDatabaseClients = createTestDatabaseClients(openDatabaseClient);
+const createDatabaseClient = testDatabaseClients.create;
+
+// Top-level, so it runs after each describe's own afterEach cleanup.
+afterEach(() => testDatabaseClients.closeAll());
 
 /**
  * Progression Application V1 — Slice F (Guided Blocked-Capability

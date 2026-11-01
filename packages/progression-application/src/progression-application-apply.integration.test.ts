@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   athleteProfiles,
-  createDatabaseClient,
+  createDatabaseClient as openDatabaseClient,
   exerciseLoadingCapabilityBindings,
   gymProfiles,
   loadingCapabilities,
@@ -28,6 +28,13 @@ import { ensureApplicationForDecision, keepOriginal } from "./progression-applic
 import { applyProgression, applySystemProgression, resolveApplicationProposal } from "./progression-application-apply.js";
 import { listPendingProgressionApplications } from "./progression-review.js";
 import { requireDisposableDatabaseUrl } from "../../test-fixtures/src/assert-disposable-test-database.js";
+import { createTestDatabaseClients } from "../../test-fixtures/src/test-database-clients.js";
+
+const testDatabaseClients = createTestDatabaseClients(openDatabaseClient);
+const createDatabaseClient = testDatabaseClients.create;
+
+// Top-level, so it runs after each describe's own afterEach cleanup.
+afterEach(() => testDatabaseClients.closeAll());
 
 /**
  * Progression Application V1 — Slice C — real Postgres integration tests

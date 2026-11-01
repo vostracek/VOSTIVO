@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray, sql } from "drizzle-orm";
 import {
   athleteProfiles,
-  createDatabaseClient,
+  createDatabaseClient as openDatabaseClient,
   exerciseLoadingCapabilityBindings,
   gymProfiles,
   loadingCapabilities,
@@ -14,6 +14,13 @@ import { getOrCreateDefaultGymProfileForAthlete } from "./gym-profile.js";
 import { resolveBoundCapability } from "./loading-capability-lookup.js";
 import { bindExerciseToCapability, createLoadingCapability, updateLoadingCapabilityPayload } from "./loading-capability-write.js";
 import { requireDisposableDatabaseUrl } from "../../test-fixtures/src/assert-disposable-test-database.js";
+import { createTestDatabaseClients } from "../../test-fixtures/src/test-database-clients.js";
+
+const testDatabaseClients = createTestDatabaseClients(openDatabaseClient);
+const createDatabaseClient = testDatabaseClients.create;
+
+// Top-level, so it runs after each describe's own afterEach cleanup.
+afterEach(() => testDatabaseClients.closeAll());
 
 /**
  * Loading Capability Foundation V1 — real Postgres integration tests
