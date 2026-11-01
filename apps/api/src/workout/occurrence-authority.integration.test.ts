@@ -36,6 +36,7 @@ import { AvailableTimePreviewService } from "../plan/available-time-preview.serv
 import { PlanReadService } from "../plan/plan-read.service.js";
 import { systemClock } from "../common/clock.js";
 import { processWorkoutCommand } from "./workout-command-processing.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Planned Workout Occurrence Authority V1 — real Postgres, through the real
@@ -46,8 +47,8 @@ import { processWorkoutCommand } from "./workout-command-processing.js";
  * Fixture: Bench Press TIER_1/min 2, 3 x 8-12 @ 60kg; OHP TIER_2/min 0,
  * 2 x 8-12 @ 30kg; 90s rest. 3 x 12 Bench reps -> INCREASE_LOAD.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
-const MIGRATION_DATABASE_URL = process.env.MIGRATION_DATABASE_URL ?? "postgres://vostivo:vostivo@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
+const MIGRATION_DATABASE_URL = requireDisposableDatabaseUrl("MIGRATION_DATABASE_URL");
 const RACE_ITERATIONS = 25;
 
 interface Athlete {

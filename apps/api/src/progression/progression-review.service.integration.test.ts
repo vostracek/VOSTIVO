@@ -30,6 +30,7 @@ import {
   getOrCreateDefaultGymProfileForAthlete,
 } from "@vostivo/progression-application";
 import { ProgressionReviewService } from "./progression-review.service.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Progression Application V1 — Slice D — real Postgres integration tests
@@ -39,7 +40,7 @@ import { ProgressionReviewService } from "./progression-review.service.js";
  * convention — see `plan.integration.test.ts`'s `new PlanReadService(db)`
  * — never a full HTTP-booted Nest app).
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 describe("ProgressionReviewService (real Postgres)", () => {
   let db: Database;

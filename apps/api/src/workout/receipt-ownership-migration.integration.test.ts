@@ -6,6 +6,7 @@ import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { createEntityId } from "@vostivo/domain";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Auth & Local Athlete Boundary V1 Slice A — the owner-scoped idempotency
@@ -16,7 +17,7 @@ import { createEntityId } from "@vostivo/domain";
  * the target through the normal drizzle migrator (twice — repeat-safe),
  * then verify rows, ownership, the new key and that nothing else changed.
  */
-const MIGRATION_DATABASE_URL = process.env.MIGRATION_DATABASE_URL ?? "postgres://vostivo:vostivo@localhost:5432/vostivo_dev";
+const MIGRATION_DATABASE_URL = requireDisposableDatabaseUrl("MIGRATION_DATABASE_URL");
 const MIGRATIONS_DIR = new URL("../../../../packages/database/drizzle/", import.meta.url).pathname;
 
 interface JournalEntry {

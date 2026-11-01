@@ -28,6 +28,7 @@ import {
   getOrCreateDefaultGymProfileForAthlete,
 } from "@vostivo/progression-application";
 import { processProgressionApplicationDispatchJob } from "./progression-application-dispatch.job.js";
+import { requireDisposableDatabaseUrl } from "../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Progression Application V1 — Slice D — real Postgres integration tests
@@ -37,7 +38,7 @@ import { processProgressionApplicationDispatchJob } from "./progression-applicat
  * representative, hard-acceptance-criteria-focused subset (the same
  * methodology used for every prior slice's own evidence gate).
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 describe("processProgressionApplicationDispatchJob (real Postgres)", () => {
   let db: Database;

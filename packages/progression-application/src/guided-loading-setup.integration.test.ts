@@ -27,6 +27,7 @@ import { bindExerciseToCapability, createLoadingCapability } from "./loading-cap
 import { ensureApplicationForDecision } from "./progression-application.js";
 import { applySystemProgression } from "./progression-application-apply.js";
 import { getGuidedLoadingSetupAttention, getLoadingSetupContext, saveGuidedLoadingSetup } from "./guided-loading-setup.js";
+import { requireDisposableDatabaseUrl } from "../../test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Progression Application V1 — Slice F (Guided Blocked-Capability
@@ -39,7 +40,7 @@ import { getGuidedLoadingSetupAttention, getLoadingSetupContext, saveGuidedLoadi
  * the fixed-increment/enumerated-list end-to-end examples §31/§32, and
  * §16's binding-race proof) is proven directly.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 describe("Progression Application V1 — Slice F Guided loading setup (real Postgres)", () => {
   let db: Database;

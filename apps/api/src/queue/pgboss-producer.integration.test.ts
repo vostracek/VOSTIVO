@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import { createDatabaseClient, type Database } from "@vostivo/database";
 import { PROGRESSION_EVALUATE_SESSION_QUEUE_V1 } from "@vostivo/progression-application";
 import { ensureQueuesViaDedicatedAdminConnection } from "./pgboss-producer.module.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Real-Postgres regression proof for the original API boot crash: queue
@@ -17,7 +18,7 @@ import { ensureQueuesViaDedicatedAdminConnection } from "./pgboss-producer.modul
  * — the fix — works against the same real Postgres, both when the queue
  * already exists and when it does not, and repeatedly (idempotent).
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 describe("PgBoss queue administration (real Postgres)", () => {
   let adminSql: Sql;

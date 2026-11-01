@@ -32,13 +32,14 @@ import {
 } from "@vostivo/progression-application";
 import { PlanReadService } from "./plan-read.service.js";
 import { systemClock } from "../common/clock.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Real Postgres integration tests (same precedent as
  * workout-sync.integration.test.ts) — run via `pnpm test:integration`,
  * not part of the default `pnpm test` gate.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 interface TestAthlete {
   readonly userId: string;

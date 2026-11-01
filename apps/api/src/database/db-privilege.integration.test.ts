@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres, { type Sql } from "postgres";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Real Postgres integration tests (Security Hardening Follow-Up V1,
@@ -13,10 +14,8 @@ import postgres, { type Sql } from "postgres";
  * target Postgres (local docker-compose or CI) — see
  * .github/workflows/ci.yml and packages/database/.env.example.
  */
-const RUNTIME_DATABASE_URL =
-  process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
-const MIGRATION_DATABASE_URL =
-  process.env.MIGRATION_DATABASE_URL ?? "postgres://vostivo:vostivo@localhost:5432/vostivo_dev";
+const RUNTIME_DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
+const MIGRATION_DATABASE_URL = requireDisposableDatabaseUrl("MIGRATION_DATABASE_URL");
 
 const INSUFFICIENT_PRIVILEGE = "42501";
 

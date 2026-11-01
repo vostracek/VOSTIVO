@@ -34,6 +34,7 @@ import {
 } from "@vostivo/progression-application";
 import { processProgressionEvaluateSessionJob } from "./progression-evaluate-session.job.js";
 import { processProgressionApplicationDispatchJob } from "./progression-application-dispatch.job.js";
+import { requireDisposableDatabaseUrl } from "../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Real Postgres integration test for the ONE place in this codebase that
@@ -44,7 +45,7 @@ import { processProgressionApplicationDispatchJob } from "./progression-applicat
  * source, and that boundary applies to this test suite too, not only to
  * `apps/worker`'s own production code.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 const EXERCISE_REF = "worker-progression-bench-press";
 
@@ -79,6 +80,9 @@ describe("processProgressionEvaluateSessionJob (real Postgres)", () => {
     // decision, so a real (started) pg-boss instance is required here too.
     boss = new PgBoss({ connectionString: DATABASE_URL, migrate: false, supervise: false, schedule: false });
     await boss.start();
+    // Production creates this queue in `startWorker()`. This suite must not
+    // depend on a later describe or a neighbouring test file having done so.
+    await ensureProgressionApplicationDispatchQueues(boss);
   });
 
   afterAll(async () => {

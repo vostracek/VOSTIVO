@@ -29,6 +29,7 @@ import { systemClock } from "../common/clock.js";
 import { processWorkoutCommand } from "./workout-command-processing.js";
 import { WorkoutSyncService } from "./workout-sync.service.js";
 import type { SyncWorkoutCommandsRequestDto } from "./dto/workout-command.dto.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Auth & Local Athlete Boundary V1 Slice A — WORKOUT COMMAND IDEMPOTENCY IS
@@ -39,7 +40,7 @@ import type { SyncWorkoutCommandsRequestDto } from "./dto/workout-command.dto.js
  * submitted under B" is modelled exactly as the server sees it: the same
  * command object, processed with B's authenticated userId.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 const CONCURRENCY = 10;
 
 interface Athlete {

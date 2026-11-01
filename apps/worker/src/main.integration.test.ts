@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startWorker } from "./main.js";
+import { requireDisposableDatabaseUrl } from "../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Real Postgres + real pg-boss smoke test (Progression Evaluation
@@ -8,7 +9,7 @@ import { startWorker } from "./main.js";
  * this test moved from the default `pnpm test` gate to
  * `pnpm test:integration`, matching apps/api's own convention.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 describe("worker process (real Postgres + real pg-boss)", () => {
   // Vitest sets NODE_ENV=test, which is intentionally not one of Vostivo's

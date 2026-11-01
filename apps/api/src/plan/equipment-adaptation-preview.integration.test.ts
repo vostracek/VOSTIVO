@@ -29,6 +29,7 @@ import type { AuthenticatedActor } from "../auth/authenticated-actor.js";
 import { EquipmentAdaptationPreviewService } from "./equipment-adaptation-preview.service.js";
 import { MissedWorkoutApplyService } from "./missed-workout-apply.service.js";
 import { MissedWorkoutPreviewService } from "./missed-workout-preview.service.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Temporary Equipment / Gym Adaptation V1 — Slice B, real Postgres
@@ -38,7 +39,7 @@ import { MissedWorkoutPreviewService } from "./missed-workout-preview.service.js
  * (10-12..10-18): Mon D. Clock: Wednesday 2026-10-07 10:00 local.
  * Every workout: Bench Press + Barbell Row + Lat Pulldown (catalog refs).
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 const WED = "2026-10-07T08:00:00Z";
 const THU = "2026-10-08T08:00:00Z";
 const CATALOG = "exercise-equipment-catalog/v1";

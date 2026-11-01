@@ -27,6 +27,7 @@ import { bindExerciseToCapability, createLoadingCapability, updateLoadingCapabil
 import { ensureApplicationForDecision, keepOriginal } from "./progression-application.js";
 import { applyProgression, applySystemProgression, resolveApplicationProposal } from "./progression-application-apply.js";
 import { listPendingProgressionApplications } from "./progression-review.js";
+import { requireDisposableDatabaseUrl } from "../../test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Progression Application V1 — Slice C — real Postgres integration tests
@@ -37,7 +38,7 @@ import { listPendingProgressionApplications } from "./progression-review.js";
  * 1:1 of all 48 items; every HARD acceptance criterion the task itself
  * calls out (§8/§9/§30/§54-§59) is proven directly.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 describe("Progression Application V1 — Slice C numeric Apply (real Postgres)", () => {
   let db: Database;

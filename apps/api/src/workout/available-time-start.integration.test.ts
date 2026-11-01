@@ -31,6 +31,7 @@ import { AvailableTimePreviewService } from "../plan/available-time-preview.serv
 import { PlanReadService } from "../plan/plan-read.service.js";
 import { systemClock } from "../common/clock.js";
 import { processWorkoutCommand } from "./workout-command-processing.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Available-Time Adaptation V1 — Slice C: adjusted START through the REAL
@@ -43,9 +44,9 @@ import { processWorkoutCommand } from "./workout-command-processing.js";
  * Fixture (tech-lead, Slice B §14): Bench TIER_1/min 2 x3, OHP TIER_2/min 0
  * x2, 90s rest. 8 min -> ADJUST 420s (OHP loses its last set).
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 // Test-only DDL (the atomicity test's temporary failure trigger) needs the migration/admin role.
-const MIGRATION_DATABASE_URL = process.env.MIGRATION_DATABASE_URL ?? "postgres://vostivo:vostivo@localhost:5432/vostivo_dev";
+const MIGRATION_DATABASE_URL = requireDisposableDatabaseUrl("MIGRATION_DATABASE_URL");
 
 interface Athlete {
   readonly userId: string;

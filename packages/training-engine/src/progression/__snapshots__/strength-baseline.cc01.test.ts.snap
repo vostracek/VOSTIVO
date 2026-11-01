@@ -1,0 +1,57 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CC-01 progression golden baseline > CC01-PROG-002: golden decision — flat performance 1`] = `
+{
+  "decisionType": "NO_CHANGE",
+  "evidenceStrength": "SUPPORTED",
+  "reasonCode": "PERFORMANCE_STABLE",
+}
+`;
+
+exports[`CC-01 progression golden baseline > CC01-PROG-002: golden decision — no evidence 1`] = `
+{
+  "decisionType": "NO_CHANGE",
+  "evidenceStrength": "INSUFFICIENT",
+  "reasonCode": "INSUFFICIENT_EVIDENCE",
+}
+`;
+
+exports[`CC-01 progression golden baseline > CC01-PROG-002: golden decision — one exposure regressed below the floor 1`] = `
+{
+  "decisionType": "NO_CHANGE",
+  "evidenceStrength": "SUPPORTED",
+  "reasonCode": "PERFORMANCE_REGRESSED_SINGLE_EXPOSURE",
+}
+`;
+
+exports[`CC-01 progression golden baseline > CC01-PROG-002: golden decision — partial exposure 1`] = `
+{
+  "decisionType": "MAINTAIN_LOAD_BUILD_REPS",
+  "evidenceStrength": "SUPPORTED",
+  "reasonCode": "PARTIAL_EXPOSURE",
+}
+`;
+
+exports[`CC-01 progression golden baseline > CC01-PROG-002: golden decision — reps improving inside the range 1`] = `
+{
+  "decisionType": "MAINTAIN_LOAD_BUILD_REPS",
+  "evidenceStrength": "SUPPORTED",
+  "reasonCode": "REPS_PROGRESSING",
+}
+`;
+
+exports[`CC-01 progression golden baseline > CC01-PROG-002: golden decision — single exposure at the top of the range 1`] = `
+{
+  "decisionType": "INCREASE_LOAD",
+  "evidenceStrength": "SINGLE_EXPOSURE",
+  "reasonCode": "TOP_OF_RANGE_ACHIEVED",
+}
+`;
+
+exports[`CC-01 progression golden baseline > CC01-PROG-002: golden decision — two exposures at the top of the range 1`] = `
+{
+  "decisionType": "INCREASE_LOAD",
+  "evidenceStrength": "SUPPORTED",
+  "reasonCode": "TOP_OF_RANGE_ACHIEVED",
+}
+`;

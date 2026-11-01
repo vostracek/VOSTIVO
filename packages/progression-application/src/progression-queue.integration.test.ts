@@ -7,6 +7,7 @@ import {
   enqueueProgressionEvaluateSession,
   ensureProgressionEvaluateSessionQueues,
 } from "./index.js";
+import { requireDisposableDatabaseUrl } from "../../test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Progression Evaluation Orchestration V1's central durability requirement
@@ -16,7 +17,7 @@ import {
  * done during this task's Part 1 inspection (a throwaway script against
  * the same dev Postgres, since deleted).
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 describe("enqueueProgressionEvaluateSession transactional atomicity (real Postgres + real pg-boss)", () => {
   let db: Database;

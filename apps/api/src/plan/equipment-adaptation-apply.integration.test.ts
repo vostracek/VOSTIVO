@@ -40,6 +40,7 @@ import { EquipmentAdaptationOptionsService } from "./equipment-adaptation-option
 import { MissedWorkoutApplyService } from "./missed-workout-apply.service.js";
 import { MissedWorkoutPreviewService } from "./missed-workout-preview.service.js";
 import { PlanReadService } from "./plan-read.service.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Temporary Equipment / Gym Adaptation V1 — Slice C, real Postgres
@@ -53,7 +54,7 @@ import { PlanReadService } from "./plan-read.service.js";
  * Barbell Row + Lat Pulldown, 2 WORKING sets each, 60 kg, TIER_1/min 1.
  * Without a barbell: bench -> Dumbbell Bench Press, row -> Seated Cable Row.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 const WED = "2026-10-07T08:00:00Z";
 const THU = "2026-10-08T08:00:00Z";
 const CATALOG = "exercise-equipment-catalog/v1";

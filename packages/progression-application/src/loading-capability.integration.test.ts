@@ -13,6 +13,7 @@ import { createEntityId, resolveNextLoadFromCapability } from "@vostivo/domain";
 import { getOrCreateDefaultGymProfileForAthlete } from "./gym-profile.js";
 import { resolveBoundCapability } from "./loading-capability-lookup.js";
 import { bindExerciseToCapability, createLoadingCapability, updateLoadingCapabilityPayload } from "./loading-capability-write.js";
+import { requireDisposableDatabaseUrl } from "../../test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Loading Capability Foundation V1 — real Postgres integration tests
@@ -22,7 +23,7 @@ import { bindExerciseToCapability, createLoadingCapability, updateLoadingCapabil
  * simulated, per this task's own explicit requirement for the same-gym
  * invariant and the default-gym-per-athlete invariant.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 describe("Loading Capability Foundation V1 (real Postgres)", () => {
   let db: Database;
