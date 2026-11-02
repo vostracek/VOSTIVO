@@ -27,6 +27,7 @@ import { MeProjectionService } from "../me/me-projection.service.js";
 import { MissedWorkoutApplyService } from "./missed-workout-apply.service.js";
 import { MissedWorkoutPreviewService } from "./missed-workout-preview.service.js";
 import { PlanReadService } from "./plan-read.service.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Missed Workout / Schedule Adaptation V1 — Slice C, real Postgres
@@ -39,7 +40,7 @@ import { PlanReadService } from "./plan-read.service.js";
  * Wednesday 2026-10-07: A missed; known slots Wed/Fri/Mon ->
  *   A -> Wed, B -> Fri, C -> Mon, D -> carryover (effective NULL).
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 const MON = "2026-10-05T08:00:00Z";
 const WED = "2026-10-07T08:00:00Z";
 const TUE = "2026-10-06T08:00:00Z";

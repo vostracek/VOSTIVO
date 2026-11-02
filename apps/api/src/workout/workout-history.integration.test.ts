@@ -15,6 +15,7 @@ import { createEntityId, type WorkoutPrescriptionV1 } from "@vostivo/domain";
 import type { CompleteSetCommandV1, StartWorkoutSessionCommandV1 } from "@vostivo/contracts";
 import { processWorkoutCommand } from "./workout-command-processing.js";
 import { ensureProgressionEvaluateSessionQueues, WorkoutHistoryService } from "@vostivo/progression-application";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Real Postgres integration tests (Progression Prerequisites V1,
@@ -27,8 +28,7 @@ import { ensureProgressionEvaluateSessionQueues, WorkoutHistoryService } from "@
  * trip, and (4) is excluded from `getRecentWorkingExposures` — no hidden
  * production UI entry point was added solely to prove this.
  */
-const DATABASE_URL =
-  process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 function buildPrescription(): WorkoutPrescriptionV1 {
   return {

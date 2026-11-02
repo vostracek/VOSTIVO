@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import {
   athleteProfiles,
-  createDatabaseClient,
+  createDatabaseClient as openDatabaseClient,
   performedExercises,
   plannedExercises,
   plannedSets,
@@ -20,6 +20,14 @@ import {
 } from "@vostivo/database";
 import { createEntityId } from "@vostivo/domain";
 import { ensureApplicationForDecision, keepOriginal, revalidatePendingApplication } from "./progression-application.js";
+import { requireDisposableDatabaseUrl } from "../../test-fixtures/src/assert-disposable-test-database.js";
+import { createTestDatabaseClients } from "../../test-fixtures/src/test-database-clients.js";
+
+const testDatabaseClients = createTestDatabaseClients(openDatabaseClient);
+const createDatabaseClient = testDatabaseClients.create;
+
+// Top-level, so it runs after each describe's own afterEach cleanup.
+afterEach(() => testDatabaseClients.closeAll());
 
 /**
  * Progression Application V1 — Slice B — real Postgres integration tests
@@ -33,7 +41,7 @@ import { ensureApplicationForDecision, keepOriginal, revalidatePendingApplicatio
  * at all — that pipeline is proven separately, this suite only needs an
  * already-persisted decision to build a workflow from).
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 describe("Progression Application V1 — Slice B (real Postgres)", () => {
   let db: Database;

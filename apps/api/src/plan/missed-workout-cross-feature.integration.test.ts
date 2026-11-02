@@ -34,6 +34,7 @@ import { AvailableTimePreviewService } from "./available-time-preview.service.js
 import { MissedWorkoutApplyService } from "./missed-workout-apply.service.js";
 import { MissedWorkoutPreviewService } from "./missed-workout-preview.service.js";
 import { PlanReadService } from "./plan-read.service.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Missed Workout V1 Slice D — cross-feature regression (real Postgres, the
@@ -45,7 +46,7 @@ import { PlanReadService } from "./plan-read.service.js";
  *
  * Locked example (Europe/Prague), clock Wednesday 2026-10-07 10:00 local.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 const WED = fixedClock(new Date("2026-10-07T08:00:00Z"));
 
 const WORKOUTS = [

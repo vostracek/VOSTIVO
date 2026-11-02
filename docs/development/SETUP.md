@@ -68,8 +68,14 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm boundaries:check   # architectural dependency rules (packages/domain, packages/training-engine)
-pnpm --filter @vostivo/api test:integration  # identity-resolution tests against real local Postgres
+pnpm --filter @vostivo/api test:integration  # needs a disposable database, see below
+pnpm --filter @vostivo/progression-application test:integration
+pnpm --filter @vostivo/worker test:integration
 ```
+
+Integration tests refuse to start unless `DATABASE_URL` and
+`MIGRATION_DATABASE_URL` are both set and name the same `vostivo_disposable_*`
+database on a loopback host. The shared `vostivo_dev` database is not accepted.
 
 ## Manual end-to-end smoke testing (LOCAL ONLY)
 

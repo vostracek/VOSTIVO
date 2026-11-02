@@ -21,6 +21,7 @@ import { MeProjectionService } from "../me/me-projection.service.js";
 import { PlanReadService } from "../plan/plan-read.service.js";
 import { MissedWorkoutPreviewService } from "../plan/missed-workout-preview.service.js";
 import { resolveActiveProgram, resolveAthleteScheduleContext } from "./athlete-schedule-context.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Schedule Calendar Authority V1 — real Postgres (`pnpm test:integration`).
@@ -30,7 +31,7 @@ import { resolveActiveProgram, resolveAthleteScheduleContext } from "./athlete-s
  * them must agree on the athlete-local date, the active program and the
  * current block/cycle classification.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 interface WorkoutSeed {
   readonly key: string;

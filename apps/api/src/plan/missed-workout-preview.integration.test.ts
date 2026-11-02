@@ -24,6 +24,7 @@ import type { AuthenticatedActor } from "../auth/authenticated-actor.js";
 import { resolveOrCreateIdentity } from "../auth/identity-resolution.js";
 import { MeProjectionService } from "../me/me-projection.service.js";
 import { MissedWorkoutPreviewService } from "./missed-workout-preview.service.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Missed Workout / Schedule Adaptation V1 — Slice B, real Postgres — run
@@ -35,7 +36,7 @@ import { MissedWorkoutPreviewService } from "./missed-workout-preview.service.js
  * Clock frozen at 2026-10-07T08:00Z (Prague 10:00, 2026-10-07):
  *   -> ROLL_FORWARD: missed Upper A, original next Lower A, slot 2026-10-07.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 const WEDNESDAY_MORNING = new Date("2026-10-07T08:00:00Z");
 
 type WorkoutStatus = "PLANNED" | "AVAILABLE" | "SKIPPED" | "RESCHEDULED" | "CANCELLED";

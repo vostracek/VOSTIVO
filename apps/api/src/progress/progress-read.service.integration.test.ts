@@ -4,7 +4,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import {
   athleteProfiles,
   availableTimeApplications,
-  createDatabaseClient,
+  createDatabaseClient as openDatabaseClient,
   equipmentAdaptationApplications,
   exerciseLoadingCapabilityBindings,
   gymProfiles,
@@ -44,6 +44,14 @@ import { EquipmentAdaptationPreviewService } from "../plan/equipment-adaptation-
 import { EquipmentAdaptationApplyService } from "../plan/equipment-adaptation-apply.service.js";
 import { decodeProgressCursor, encodeProgressCursor } from "./progress-cursor.js";
 import { ProgressReadService } from "./progress-read.service.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
+import { createTestDatabaseClients } from "../../../../packages/test-fixtures/src/test-database-clients.js";
+
+const testDatabaseClients = createTestDatabaseClients(openDatabaseClient);
+const createDatabaseClient = testDatabaseClients.create;
+
+// Top-level, so it runs after each describe's own afterEach cleanup.
+afterEach(() => testDatabaseClients.closeAll());
 
 /**
  * Progress & Feedback V1 — Slice A — real Postgres. Service-level (this
@@ -54,7 +62,7 @@ import { ProgressReadService } from "./progress-read.service.js";
  * equipment substitute + Available-Time session, a pending (unapplied)
  * recommendation, and a second athlete for BOLA.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 // Wednesday 2026-10-14, 12:00 in Europe/Prague.
 const NOW = new Date("2026-10-14T10:00:00.000Z");
 const KG = (kg: number) => ({ kind: "EXTERNAL_WEIGHT" as const, amountMilli: kg * 1000, unit: "KG" as const, basis: "TOTAL" as const });

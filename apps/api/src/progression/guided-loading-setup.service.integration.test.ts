@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import {
   athleteProfiles,
-  createDatabaseClient,
+  createDatabaseClient as openDatabaseClient,
   exerciseLoadingCapabilityBindings,
   gymProfiles,
   loadingCapabilities,
@@ -25,6 +25,14 @@ import {
 import { createEntityId, type ExperienceMode } from "@vostivo/domain";
 import { applySystemProgression, ensureApplicationForDecision } from "@vostivo/progression-application";
 import { GuidedLoadingSetupService } from "./guided-loading-setup.service.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
+import { createTestDatabaseClients } from "../../../../packages/test-fixtures/src/test-database-clients.js";
+
+const testDatabaseClients = createTestDatabaseClients(openDatabaseClient);
+const createDatabaseClient = testDatabaseClients.create;
+
+// Top-level, so it runs after each describe's own afterEach cleanup.
+afterEach(() => testDatabaseClients.closeAll());
 
 /**
  * Progression Application V1 — Slice F — real Postgres integration tests
@@ -38,7 +46,7 @@ import { GuidedLoadingSetupService } from "./guided-loading-setup.service.js";
  * convention `progression-review.service.integration.test.ts` already
  * established for Slice E.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 describe("GuidedLoadingSetupService (real Postgres)", () => {
   let db: Database;

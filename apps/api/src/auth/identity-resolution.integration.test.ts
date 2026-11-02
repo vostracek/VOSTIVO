@@ -8,6 +8,7 @@ import {
   type Database,
 } from "@vostivo/database";
 import { resolveOrCreateIdentity } from "./identity-resolution.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Real Postgres integration tests — require a local database
@@ -16,8 +17,7 @@ import { resolveOrCreateIdentity } from "./identity-resolution.js";
  * not part of the default `pnpm test` gate (spec section 16: core unit
  * tests must not require a live DB connection).
  */
-const DATABASE_URL =
-  process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 const TEST_SUBJECT_PREFIX = "identity-resolution-test-";
 

@@ -1,8 +1,8 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
 import {
-  createDatabaseClient,
+  createDatabaseClient as openDatabaseClient,
   performedExercises,
   performedSets,
   programVersions,
@@ -25,6 +25,14 @@ import { createEntityId, type WorkoutPrescriptionV1 } from "@vostivo/domain";
 import type { CompleteSetCommandV1, FinishWorkoutSessionCommandV1, ReopenSetCommandV1, StartWorkoutSessionCommandV1 } from "@vostivo/contracts";
 import { ensureProgressionEvaluateSessionQueues, ProgressionEvaluationService, WorkoutHistoryService } from "@vostivo/progression-application";
 import { processWorkoutCommand } from "./workout-command-processing.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
+import { createTestDatabaseClients } from "../../../../packages/test-fixtures/src/test-database-clients.js";
+
+const testDatabaseClients = createTestDatabaseClients(openDatabaseClient);
+const createDatabaseClient = testDatabaseClients.create;
+
+// Top-level, so it runs after each describe's own afterEach cleanup.
+afterEach(() => testDatabaseClients.closeAll());
 
 /**
  * Real Postgres integration tests for Progression EngineDecision
@@ -35,7 +43,7 @@ import { processWorkoutCommand } from "./workout-command-processing.js";
  * hand-inserted rows — so these tests prove the whole real system, not a
  * synthetic shortcut.
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 const EXERCISE_REF = "progression-slice-c-bench-press";
 const OTHER_EXERCISE_REF = "progression-slice-c-overhead-press";

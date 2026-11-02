@@ -20,6 +20,7 @@ import {
 } from "@vostivo/database";
 import { createEntityId } from "@vostivo/domain";
 import { AvailableTimePreviewService } from "./available-time-preview.service.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Available-Time Adaptation V1 — Slice B, real Postgres (same precedent as
@@ -34,7 +35,7 @@ import { AvailableTimePreviewService } from "./available-time-preview.service.js
  *   OHP 2 sets:   60 + 2*30 + 90   = 210s   OHP 1 set:    60 + 30      =  90s
  *   full session = 540s (9 min)
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 interface TestAthlete {
   readonly userId: string;

@@ -20,6 +20,7 @@ import type {
   StartWorkoutSessionCommandV1,
 } from "@vostivo/contracts";
 import { processWorkoutCommand } from "./workout-command-processing.js";
+import { requireDisposableDatabaseUrl } from "../../../../packages/test-fixtures/src/assert-disposable-test-database.js";
 
 /**
  * Real Postgres integration tests (spec section 35/45) — never a real
@@ -32,8 +33,7 @@ import { processWorkoutCommand } from "./workout-command-processing.js";
  * the server — see apps/mobile's sync-engine and workout-repository
  * tests for those.
  */
-const DATABASE_URL =
-  process.env.DATABASE_URL ?? "postgres://vostivo_api:vostivo_api@localhost:5432/vostivo_dev";
+const DATABASE_URL = requireDisposableDatabaseUrl("DATABASE_URL");
 
 const UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
