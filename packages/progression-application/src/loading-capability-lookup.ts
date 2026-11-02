@@ -111,25 +111,41 @@ export async function resolveBoundCapability(
  * every ordinary (unlocked) call site's intent stays visually obvious and
  * this codebase's proven query shape for the common case is never
  * disturbed by an unused parameter.
+ *
+ * D-APPLY-1: two single-table locking reads, never one joined
+ * `FOR UPDATE`. When a joined locking read waits on a binding row that a
+ * concurrent writer rebinds to another capability, Postgres rechecks the
+ * NEW binding version against the OLD joined capability row, the join
+ * condition fails and the row silently drops out — a spurious
+ * LOADING_CAPABILITY_UNAVAILABLE despite a valid committed binding. Locking
+ * the binding alone follows it to its latest version; only then is the
+ * capability it now points at read and locked by id. Lock order stays
+ * binding -> capability for every caller.
  */
 export async function resolveBoundCapabilityForUpdate(
   db: Database,
   gymProfileId: string,
   exerciseRef: string,
 ): Promise<LoadingCapabilityLookupResult> {
-  const [row] = await db
-    .select(BOUND_CAPABILITY_COLUMNS)
+  const [binding] = await db
+    .select({ loadingCapabilityId: exerciseLoadingCapabilityBindings.loadingCapabilityId })
     .from(exerciseLoadingCapabilityBindings)
-    .innerJoin(
-      loadingCapabilities,
-      eq(loadingCapabilities.id, exerciseLoadingCapabilityBindings.loadingCapabilityId),
-    )
     .where(
       and(
         eq(exerciseLoadingCapabilityBindings.gymProfileId, gymProfileId),
         eq(exerciseLoadingCapabilityBindings.exerciseRef, exerciseRef),
       ),
     )
+    .limit(1)
+    .for("update");
+  if (binding === undefined) return toLookupResult(undefined);
+
+  // Same-gym scoping is redundant with the composite FK, kept so this read
+  // can never return another gym's capability even in principle.
+  const [row] = await db
+    .select(BOUND_CAPABILITY_COLUMNS)
+    .from(loadingCapabilities)
+    .where(and(eq(loadingCapabilities.id, binding.loadingCapabilityId), eq(loadingCapabilities.gymProfileId, gymProfileId)))
     .limit(1)
     .for("update");
 

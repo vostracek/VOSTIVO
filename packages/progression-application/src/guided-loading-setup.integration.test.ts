@@ -23,7 +23,7 @@ import {
 } from "@vostivo/database";
 import { createEntityId, type ExperienceMode } from "@vostivo/domain";
 import { getOrCreateDefaultGymProfileForAthlete } from "./gym-profile.js";
-import { bindExerciseToCapability, createLoadingCapability } from "./loading-capability-write.js";
+import { bindExerciseToCapability, createLoadingCapability, updateLoadingCapabilityPayload } from "./loading-capability-write.js";
 import { ensureApplicationForDecision } from "./progression-application.js";
 import { applySystemProgression } from "./progression-application-apply.js";
 import { getGuidedLoadingSetupAttention, getLoadingSetupContext, saveGuidedLoadingSetup } from "./guided-loading-setup.js";
@@ -595,14 +595,14 @@ describe("Progression Application V1 — Slice F Guided loading setup (real Post
     expect(race.bystanderAfter).toBe(race.bystanderBefore); // no cross-athlete effect
   }
 
-  it("SLICE-F-013 (D-CAP-1 harness): with an existing gym and no binding, all 5 concurrent Saves reach the race and the workflow resolves exactly once", async () => {
+  it("D-CAP-1-HARNESS: with an existing gym and no binding, all 5 concurrent Saves reach the race and the workflow resolves exactly once", async () => {
     const race = await raceSavesWithExistingGymAndNoBinding("slice-f-013");
     expect(race.waitersSeen).toBe(5); // the barrier really held all five Saves
     expectResolvedExactlyOnce(race);
   }, 30000);
 
   // D-CAP-1 regression (repaired in CC-01.7 by locking the GymProfile row
-  // before the binding read). SLICE-F-013 above guards the barrier setup.
+  // before the binding read). D-CAP-1-HARNESS above guards the barrier setup.
   it("D-CAP-1: with an existing gym and no binding, 5 concurrent identical Saves leave exactly one capability and no orphan", async () => {
     const race = await raceSavesWithExistingGymAndNoBinding("d-cap-1");
     expect(race.waitersSeen).toBe(5);
@@ -610,6 +610,122 @@ describe("Progression Application V1 — Slice F Guided loading setup (real Post
     expect(race.capabilities.filter((capability) => capability.id !== race.bindings[0]?.loadingCapabilityId)).toEqual([]); // zero orphans
     expect(race.applications[0]?.loadingCapabilityId).toBe(race.bindings[0]?.loadingCapabilityId); // audit points at the bound capability
     expectResolvedExactlyOnce(race);
+  }, 30000);
+
+  interface BlockedApplyFixture {
+    readonly userId: string;
+    readonly applicationId: string;
+    readonly gymProfileId: string;
+    readonly exerciseRef: string;
+    readonly capabilityAId: string;
+  }
+
+  /** A GUIDED application left blocked, then Capability A (2.5 kg) bound — PENDING_REVIEW, no successful Apply yet. */
+  async function blockedApplicationBoundToCapabilityA(label: string): Promise<BlockedApplyFixture> {
+    const { userId, athleteProfileId } = await createAthlete("GUIDED");
+    const plan = await seedProgram(athleteProfileId, label, 100000);
+    const applicationId = await createBlockedGuidedApplication(userId, plan.exerciseRef, plan.exerciseId);
+    const gym = await getOrCreateDefaultGymProfileForAthlete(db, athleteProfileId);
+    const capabilityA = await createLoadingCapability(db, { kind: "FIXED_INCREMENT", gymProfileId: gym.id, unit: "KG", basis: "TOTAL", incrementAmountMilli: 2500 });
+    if (capabilityA.status !== "CREATED") throw new Error("expected CREATED");
+    await bindExerciseToCapability(db, gym.id, plan.exerciseRef, capabilityA.loadingCapabilityId);
+    return { userId, applicationId, gymProfileId: gym.id, exerciseRef: plan.exerciseRef, capabilityAId: capabilityA.loadingCapabilityId };
+  }
+
+  /**
+   * Deterministic barrier: a separate transaction locks `lockedRow`, a SYSTEM
+   * Apply is started and observed (pg_blocking_pids) waiting on that lock,
+   * then the transaction runs `change` and commits — so Apply's locking read
+   * always resumes against a row a concurrent writer just changed.
+   */
+  async function applyWhileRowChanges(
+    lockRow: (tx: Database) => Promise<unknown>,
+    change: (tx: Database) => Promise<void>,
+    applicationId: string,
+  ): Promise<{ readonly waitersSeen: number; readonly outcome: Awaited<ReturnType<typeof applySystemProgression>> }> {
+    let applying: ReturnType<typeof applySystemProgression> | undefined;
+    let waitersSeen = 0;
+    await createDatabaseClient(DATABASE_URL).transaction(async (tx) => {
+      await lockRow(tx);
+      applying = applySystemProgression(createDatabaseClient(DATABASE_URL), { applicationId, systemCommandId: createEntityId() });
+      const deadline = Date.now() + 15000;
+      while (waitersSeen < 1 && Date.now() < deadline) {
+        await tx.execute(sql`SELECT pg_stat_clear_snapshot()`);
+        const [blocked] = await tx.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM pg_stat_activity WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))`);
+        waitersSeen = blocked?.n ?? 0;
+      }
+      await change(tx);
+    });
+    return { waitersSeen, outcome: await applying! };
+  }
+
+  // D-APPLY-1 regression (CC-01.8): numeric Apply waiting on the binding row
+  // lock while a concurrent writer validly rebinds the exercise to a new
+  // capability must resolve against the NEW binding — never a spurious
+  // LOADING_CAPABILITY_UNAVAILABLE plus REJECTED receipt.
+  it("D-APPLY-1: Apply blocked on the binding lock while the exercise is rebound to a new valid capability applies against the new capability", async () => {
+    const fixture = await blockedApplicationBoundToCapabilityA("d-apply-1");
+    const receiptsBefore = await db.select().from(progressionApplicationCommands).where(eq(progressionApplicationCommands.applicationId, fixture.applicationId));
+    let capabilityBId: string | undefined;
+
+    const { waitersSeen, outcome } = await applyWhileRowChanges(
+      (tx) =>
+        tx
+          .select({ id: exerciseLoadingCapabilityBindings.id })
+          .from(exerciseLoadingCapabilityBindings)
+          .where(eq(exerciseLoadingCapabilityBindings.gymProfileId, fixture.gymProfileId))
+          .for("update"),
+      async (tx) => {
+        const capabilityB = await createLoadingCapability(tx, { kind: "FIXED_INCREMENT", gymProfileId: fixture.gymProfileId, unit: "KG", basis: "TOTAL", incrementAmountMilli: 5000 });
+        if (capabilityB.status !== "CREATED") throw new Error("expected CREATED");
+        capabilityBId = capabilityB.loadingCapabilityId;
+        const bound = await bindExerciseToCapability(tx, fixture.gymProfileId, fixture.exerciseRef, capabilityB.loadingCapabilityId);
+        if (bound.status !== "BOUND") throw new Error("expected BOUND");
+      },
+      fixture.applicationId,
+    );
+
+    expect(waitersSeen).toBe(1); // Apply really waited on the binding row lock
+    expect(outcome.status === "NOT_APPLIED" ? `NOT_APPLIED:${outcome.reason}` : outcome.status).toBe("APPLIED");
+
+    const [binding] = await db.select().from(exerciseLoadingCapabilityBindings).where(eq(exerciseLoadingCapabilityBindings.gymProfileId, fixture.gymProfileId));
+    expect(binding?.loadingCapabilityId).toBe(capabilityBId);
+    const [row] = await db.select().from(progressionApplications).where(eq(progressionApplications.id, fixture.applicationId));
+    expect(row?.status).toBe("APPLIED");
+    expect(row?.decidedByActorType).toBe("SYSTEM");
+    expect(row?.decidedBy).toBeNull();
+    expect(row?.loadingCapabilityId).toBe(capabilityBId); // audit = the capability actually bound
+    expect(row?.appliedLoad).toEqual({ kind: "EXTERNAL_WEIGHT", amountMilli: 105000, unit: "KG", basis: "TOTAL" }); // 100 + 5 (B), never 102.5 (A)
+    expect(row?.loadingCapabilitySnapshot).toEqual({ kind: "FIXED_INCREMENT", unit: "KG", basis: "TOTAL", incrementAmountMilli: 5000 });
+
+    const receiptsAfter = await db.select().from(progressionApplicationCommands).where(eq(progressionApplicationCommands.applicationId, fixture.applicationId));
+    const newReceipts = receiptsAfter.filter((receipt) => !receiptsBefore.some((before) => before.commandId === receipt.commandId));
+    expect(newReceipts).toHaveLength(1);
+    expect(newReceipts[0]).toMatchObject({ actorType: "SYSTEM", outcome: "APPLIED", ownerUserId: fixture.userId });
+    expect(newReceipts.filter((receipt) => receipt.outcome === "REJECTED")).toEqual([]); // no spurious rejection
+  }, 30000);
+
+  // Guard for the D-APPLY-1 repair: an in-place capability payload edit
+  // committed while Apply waits on the capability row must still be seen
+  // (fresh revision), exactly as before the repair.
+  it("D-APPLY-1 guard: Apply blocked on the capability row lock while that capability is edited in place applies the new revision", async () => {
+    const fixture = await blockedApplicationBoundToCapabilityA("d-apply-1-guard");
+
+    const { waitersSeen, outcome } = await applyWhileRowChanges(
+      (tx) => tx.select({ id: loadingCapabilities.id }).from(loadingCapabilities).where(eq(loadingCapabilities.id, fixture.capabilityAId)).for("update"),
+      async (tx) => {
+        const updated = await updateLoadingCapabilityPayload(tx, fixture.capabilityAId, { kind: "FIXED_INCREMENT", incrementAmountMilli: 5000 });
+        if (updated.status !== "UPDATED") throw new Error("expected UPDATED");
+      },
+      fixture.applicationId,
+    );
+
+    expect(waitersSeen).toBe(1);
+    expect(outcome.status === "NOT_APPLIED" ? `NOT_APPLIED:${outcome.reason}` : outcome.status).toBe("APPLIED");
+    const [row] = await db.select().from(progressionApplications).where(eq(progressionApplications.id, fixture.applicationId));
+    expect(row?.loadingCapabilityId).toBe(fixture.capabilityAId);
+    expect(row?.loadingCapabilityRevision).toBe(2);
+    expect(row?.appliedLoad).toEqual({ kind: "EXTERNAL_WEIGHT", amountMilli: 105000, unit: "KG", basis: "TOTAL" });
   }, 30000);
 
   // Slice F — Final Save-vs-Apply Serialization Gate, task §4/§5 (mandatory).
