@@ -289,14 +289,25 @@ describe("processProgressionApplicationDispatchJob (real Postgres)", () => {
     const results = await Promise.all(
       Array.from({ length: 5 }, () => processProgressionApplicationDispatchJob(createDatabaseClient(DATABASE_URL), { progressionDecisionId: decisionId, systemCommandId: createEntityId() })),
     );
-    expect(results.every((r) => r.status === "SYSTEM_APPLY_ATTEMPTED")).toBe(true);
+    // Duplicates converge (spec: "duplicates are explicitly allowed"): a job
+    // that reads the workflow after another job decided it returns
+    // ALREADY_DECIDED without attempting. NOT_APPLIED or anything else fails.
+    const unexpected = results.filter((r) => !(r.status === "ALREADY_DECIDED" || (r.status === "SYSTEM_APPLY_ATTEMPTED" && r.outcome === "APPLIED")));
+    expect(unexpected).toEqual([]);
 
     const rows = await db.select().from(progressionApplications).where(eq(progressionApplications.progressionDecisionId, decisionId));
     expect(rows).toHaveLength(1); // exactly one workflow
     expect(rows[0]?.status).toBe("APPLIED"); // exactly one effective outcome — no corruption
+    expect(rows[0]?.decidedByActorType).toBe("SYSTEM");
+    expect(rows[0]?.decidedBy).toBeNull();
+    expect(rows[0]?.appliedLoad).toMatchObject({ amountMilli: 102500 }); // 100 kg + one 2.5 kg step, never twice
 
     const appliedResults = results.filter((r) => r.status === "SYSTEM_APPLY_ATTEMPTED" && r.outcome === "APPLIED");
     expect(appliedResults.length).toBeGreaterThanOrEqual(1); // at least the winner (others converge to the same APPLIED outcome)
+    // One SYSTEM APPLIED receipt per attempting job, none for ALREADY_DECIDED, no rejection.
+    const receipts = await db.select().from(progressionApplicationCommands).where(eq(progressionApplicationCommands.applicationId, rows[0]!.id));
+    expect(receipts.every((receipt) => receipt.actorType === "SYSTEM" && receipt.outcome === "APPLIED")).toBe(true);
+    expect(receipts).toHaveLength(appliedResults.length);
   });
 
   // Slice D — Final Durability / Crash-Window Gate §6/§13.D — duplicate

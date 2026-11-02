@@ -637,11 +637,21 @@ describe("Slice D — Final Durability / Crash-Window Gate (real Postgres + real
     const results = await Promise.all(
       forA.map(() => processProgressionApplicationDispatchJob(createDatabaseClient(DATABASE_URL), { progressionDecisionId: decisionA.id, systemCommandId: createEntityId() })),
     );
-    expect(results.every((r) => r.status === "SYSTEM_APPLY_ATTEMPTED")).toBe(true);
+    // A duplicate that reads the workflow after the other decided it returns ALREADY_DECIDED; NOT_APPLIED or anything else fails.
+    const unexpected = results.filter((r) => !(r.status === "ALREADY_DECIDED" || (r.status === "SYSTEM_APPLY_ATTEMPTED" && r.outcome === "APPLIED")));
+    expect(unexpected).toEqual([]);
+    const appliedResults = results.filter((r) => r.status === "SYSTEM_APPLY_ATTEMPTED" && r.outcome === "APPLIED");
+    expect(appliedResults.length).toBeGreaterThanOrEqual(1);
 
     const applicationsForA = await db2.select().from(progressionApplications).where(eq(progressionApplications.progressionDecisionId, decisionA.id));
     expect(applicationsForA).toHaveLength(1);
     expect(applicationsForA[0]?.status).toBe("APPLIED");
+    expect(applicationsForA[0]?.decidedByActorType).toBe("SYSTEM");
+    expect(applicationsForA[0]?.decidedBy).toBeNull();
+    expect(applicationsForA[0]?.appliedLoad).toMatchObject({ amountMilli: 102500 }); // never a double increment
+    const receipts = await db2.select().from(progressionApplicationCommands).where(eq(progressionApplicationCommands.applicationId, applicationsForA[0]!.id));
+    expect(receipts.every((receipt) => receipt.actorType === "SYSTEM" && receipt.outcome === "APPLIED")).toBe(true);
+    expect(receipts).toHaveLength(appliedResults.length);
   });
 
   it("PROG-APP-D-DUR-C: a dispatch job's systemCommandId is stable across that SAME job's own pg-boss retry", async () => {

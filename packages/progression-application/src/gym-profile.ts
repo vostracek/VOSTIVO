@@ -74,6 +74,21 @@ export async function getOrCreateDefaultGymProfileForAthlete(
 }
 
 /**
+ * D-CAP-1: serializes contextual capability writes for one GymProfile.
+ * Called inside the writer's transaction BEFORE it reads the exercise
+ * binding, so a concurrent writer for the same gym waits here and then
+ * (READ COMMITTED, fresh statement) sees the winner's committed binding
+ * instead of creating a second capability. `NO KEY UPDATE` conflicts only
+ * with itself and stronger locks, never with the `KEY SHARE` an FK check
+ * takes, so ordinary capability/binding inserts elsewhere are not blocked.
+ * Numeric Apply never locks this row, so this adds no Apply lock-order edge.
+ */
+export async function lockGymProfileForCapabilityWrite(db: Database, gymProfileId: string): Promise<void> {
+  const [locked] = await db.select({ id: gymProfiles.id }).from(gymProfiles).where(eq(gymProfiles.id, gymProfileId)).for("no key update");
+  if (locked === undefined) throw new Error(`lockGymProfileForCapabilityWrite: GymProfile ${gymProfileId} not found`);
+}
+
+/**
  * Progression Application V1 — Slice C (task §25): a **read-only** lookup,
  * never creating a `GymProfile` as a side effect. Numeric Apply must fail
  * with `LOADING_CAPABILITY_UNAVAILABLE` when no default `GymProfile` has

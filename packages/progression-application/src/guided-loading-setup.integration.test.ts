@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import {
   athleteProfiles,
   createDatabaseClient as openDatabaseClient,
@@ -447,19 +447,170 @@ describe("Progression Application V1 — Slice F Guided loading setup (real Post
         saveGuidedLoadingSetup(createDatabaseClient(DATABASE_URL), { userId }, applicationId, { kind: "FIXED_INCREMENT", incrementAmountMilli: 2500 }),
       ),
     );
-    // No deadlock (the test itself would time out if one occurred); every
-    // attempt reaches a terminal, well-formed outcome.
-    expect(results.every((r) => r.status === "APPLIED" || r.status === "SAVED_STILL_BLOCKED")).toBe(true);
+    // No deadlock (the test itself would time out if one occurred). Every
+    // attempt returns a contract-valid outcome: a Save whose post-lock
+    // revalidation runs after another Save's Apply already resolved the
+    // workflow returns NOT_RECOVERABLE (contracts: "Plan changed / no longer
+    // current", a 200 outcome). SAVED_RETRY_FAILED and anything else stays
+    // forbidden, and at least one Save must have applied.
+    const statuses = results.map((r) => r.status);
+    const contractValid: readonly string[] = ["APPLIED", "SAVED_STILL_BLOCKED", "NOT_RECOVERABLE"];
+    expect(statuses.filter((status) => !contractValid.includes(status))).toEqual([]);
+    expect(statuses).toContain("APPLIED");
 
-    const capabilities = await db
-      .select()
-      .from(loadingCapabilities)
-      .where(eq(loadingCapabilities.gymProfileId, (await getOrCreateDefaultGymProfileForAthlete(db, athleteProfileId)).id));
+    const gym = await getOrCreateDefaultGymProfileForAthlete(db, athleteProfileId);
+    const capabilities = await db.select().from(loadingCapabilities).where(eq(loadingCapabilities.gymProfileId, gym.id));
     expect(capabilities).toHaveLength(1); // exactly one capability, never a duplicate from the race
+    const bindings = await db.select().from(exerciseLoadingCapabilityBindings).where(eq(exerciseLoadingCapabilityBindings.gymProfileId, gym.id));
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]?.exerciseRef).toBe(plan.exerciseRef);
+    expect(bindings[0]?.loadingCapabilityId).toBe(capabilities[0]?.id);
 
-    const [row] = await db.select().from(progressionApplications).where(eq(progressionApplications.id, applicationId));
+    // Exactly one logical application, resolved exactly once by SYSTEM.
+    const applications = await db.select().from(progressionApplications).where(eq(progressionApplications.userId, userId));
+    expect(applications).toHaveLength(1);
+    const row = applications[0];
+    expect(row?.id).toBe(applicationId);
     expect(row?.status).toBe("APPLIED"); // exactly one effective outcome — no corruption
+    // NOT_RECOVERABLE is only acceptable because the workflow it refers to is already resolved.
+    if (statuses.includes("NOT_RECOVERABLE")) expect(row?.status).toBe("APPLIED");
+    expect(row?.decidedByActorType).toBe("SYSTEM");
+    expect(row?.decidedBy).toBeNull();
+    expect(row?.appliedLoad).toMatchObject({ amountMilli: 102500 }); // 100 kg + one 2.5 kg step, never twice
+    expect(row?.loadingCapabilityId).toBe(capabilities[0]?.id);
+    expect(row?.loadingCapabilitySnapshot).toMatchObject({ kind: "FIXED_INCREMENT", incrementAmountMilli: 2500 });
+
+    // Every APPLIED response has exactly one durable SYSTEM receipt, and no receipt claims an Apply nobody reported.
+    const receipts = await db.select().from(progressionApplicationCommands).where(eq(progressionApplicationCommands.applicationId, applicationId));
+    expect(receipts.every((receipt) => receipt.actorType === "SYSTEM" && receipt.ownerUserId === userId)).toBe(true);
+    expect(receipts.filter((receipt) => receipt.outcome === "APPLIED")).toHaveLength(statuses.filter((status) => status === "APPLIED").length);
   });
+
+  // D-CAP-1 (found in CC-01.5): an athlete who already has a gym, but no
+  // binding for THIS exercise (e.g. set up exercise A earlier, now exercise B
+  // is blocked). `resolveBoundCapabilityForUpdate` then finds no row to lock,
+  // so concurrent Saves are not serialized before creating a capability.
+  // The barrier holds the gym row FOR UPDATE: each racing Save that reaches a
+  // write needing that row (today: the capability INSERT's FK check) waits on
+  // it, and the barrier releases only once all five are blocked behind it —
+  // deterministic, no sleeps. With the CC-01.7 repair the Saves wait on the
+  // gym row lock itself (queued behind each other), still all behind the barrier.
+  interface ExistingGymRace {
+    readonly userId: string;
+    readonly applicationId: string;
+    readonly exerciseRef: string;
+    readonly waitersSeen: number;
+    readonly statuses: readonly string[];
+    readonly capabilities: readonly (typeof loadingCapabilities.$inferSelect)[];
+    readonly bindings: readonly (typeof exerciseLoadingCapabilityBindings.$inferSelect)[];
+    readonly applications: readonly (typeof progressionApplications.$inferSelect)[];
+    readonly receipts: readonly (typeof progressionApplicationCommands.$inferSelect)[];
+    readonly bystanderBefore: string;
+    readonly bystanderAfter: string;
+  }
+
+  async function bystanderRows(athleteProfileId: string): Promise<string> {
+    const gyms = await db.select().from(gymProfiles).where(eq(gymProfiles.athleteProfileId, athleteProfileId));
+    const gymIds = gyms.map((gym) => gym.id);
+    const capabilities = await db.select().from(loadingCapabilities).where(inArray(loadingCapabilities.gymProfileId, gymIds));
+    const bindings = await db.select().from(exerciseLoadingCapabilityBindings).where(inArray(exerciseLoadingCapabilityBindings.gymProfileId, gymIds));
+    return JSON.stringify({ gyms, capabilities, bindings });
+  }
+
+  async function raceSavesWithExistingGymAndNoBinding(label: string): Promise<ExistingGymRace> {
+    // Another athlete with their own configured equipment, to prove the race never touches it.
+    const bystander = await createAthlete("GUIDED");
+    const bystanderPlan = await seedProgram(bystander.athleteProfileId, `${label}-bystander`);
+    const bystanderGym = await getOrCreateDefaultGymProfileForAthlete(db, bystander.athleteProfileId);
+    const bystanderCapability = await createLoadingCapability(db, { kind: "FIXED_INCREMENT", gymProfileId: bystanderGym.id, unit: "KG", basis: "TOTAL", incrementAmountMilli: 2500 });
+    if (bystanderCapability.status !== "CREATED") throw new Error("expected CREATED");
+    await bindExerciseToCapability(db, bystanderGym.id, bystanderPlan.exerciseRef, bystanderCapability.loadingCapabilityId);
+    const bystanderBefore = await bystanderRows(bystander.athleteProfileId);
+
+    const { userId, athleteProfileId } = await createAthlete("GUIDED");
+    const plan = await seedProgram(athleteProfileId, label, 100000);
+    const applicationId = await createBlockedGuidedApplication(userId, plan.exerciseRef, plan.exerciseId);
+    const gym = await getOrCreateDefaultGymProfileForAthlete(db, athleteProfileId);
+    const preexisting = await db.select().from(loadingCapabilities).where(eq(loadingCapabilities.gymProfileId, gym.id));
+    if (preexisting.length !== 0) throw new Error("precondition: the gym must start with no capability for this exercise");
+
+    let racing: Promise<PromiseSettledResult<Awaited<ReturnType<typeof saveGuidedLoadingSetup>>>[]> | undefined;
+    let waitersSeen = 0;
+    await createDatabaseClient(DATABASE_URL).transaction(async (tx) => {
+      await tx.select({ id: gymProfiles.id }).from(gymProfiles).where(eq(gymProfiles.id, gym.id)).for("update");
+      racing = Promise.allSettled(
+        Array.from({ length: 5 }, () =>
+          saveGuidedLoadingSetup(createDatabaseClient(DATABASE_URL), { userId }, applicationId, { kind: "FIXED_INCREMENT", incrementAmountMilli: 2500 }),
+        ),
+      );
+      const deadline = Date.now() + 15000;
+      while (waitersSeen < 5 && Date.now() < deadline) {
+        await tx.execute(sql`SELECT pg_stat_clear_snapshot()`);
+        // Tuple-lock waiters queue behind each other, so count the whole chain blocked behind this transaction, not only direct waiters.
+        const [blocked] = await tx.execute<{ n: number }>(sql`
+          WITH RECURSIVE chain(pid) AS (
+            SELECT pid FROM pg_stat_activity WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))
+            UNION
+            SELECT activity.pid FROM pg_stat_activity activity JOIN chain ON chain.pid = ANY(pg_blocking_pids(activity.pid))
+          )
+          SELECT count(*)::int AS n FROM chain`);
+        waitersSeen = blocked?.n ?? 0;
+      }
+    });
+    const settled = await racing!;
+    const statuses = settled.map((result) => (result.status === "fulfilled" ? result.value.status : "THREW"));
+
+    return {
+      userId,
+      applicationId,
+      exerciseRef: plan.exerciseRef,
+      waitersSeen,
+      statuses,
+      capabilities: await db.select().from(loadingCapabilities).where(eq(loadingCapabilities.gymProfileId, gym.id)),
+      bindings: await db.select().from(exerciseLoadingCapabilityBindings).where(eq(exerciseLoadingCapabilityBindings.gymProfileId, gym.id)),
+      applications: await db.select().from(progressionApplications).where(eq(progressionApplications.userId, userId)),
+      receipts: await db.select().from(progressionApplicationCommands).where(eq(progressionApplicationCommands.applicationId, applicationId)),
+      bystanderBefore,
+      bystanderAfter: await bystanderRows(bystander.athleteProfileId),
+    };
+  }
+
+  function expectResolvedExactlyOnce(race: ExistingGymRace): void {
+    const contractValid: readonly string[] = ["APPLIED", "SAVED_STILL_BLOCKED", "NOT_RECOVERABLE"];
+    expect(race.statuses.filter((status) => !contractValid.includes(status))).toEqual([]);
+    expect(race.statuses).toContain("APPLIED");
+    expect(race.bindings).toHaveLength(1);
+    expect(race.bindings[0]?.exerciseRef).toBe(race.exerciseRef);
+    expect(race.applications).toHaveLength(1);
+    const row = race.applications[0];
+    expect(row?.id).toBe(race.applicationId);
+    expect(row?.status).toBe("APPLIED");
+    expect(row?.decidedByActorType).toBe("SYSTEM");
+    expect(row?.decidedBy).toBeNull();
+    expect(row?.appliedLoad).toMatchObject({ amountMilli: 102500 });
+    expect(row?.loadingCapabilitySnapshot).toMatchObject({ kind: "FIXED_INCREMENT", incrementAmountMilli: 2500 });
+    expect(race.capabilities.map((capability) => capability.id)).toContain(row?.loadingCapabilityId);
+    expect(race.receipts.every((receipt) => receipt.actorType === "SYSTEM" && receipt.ownerUserId === race.userId)).toBe(true);
+    expect(race.receipts.filter((receipt) => receipt.outcome === "APPLIED")).toHaveLength(race.statuses.filter((status) => status === "APPLIED").length);
+    expect(race.bystanderAfter).toBe(race.bystanderBefore); // no cross-athlete effect
+  }
+
+  it("SLICE-F-013 (D-CAP-1 harness): with an existing gym and no binding, all 5 concurrent Saves reach the race and the workflow resolves exactly once", async () => {
+    const race = await raceSavesWithExistingGymAndNoBinding("slice-f-013");
+    expect(race.waitersSeen).toBe(5); // the barrier really held all five Saves
+    expectResolvedExactlyOnce(race);
+  }, 30000);
+
+  // D-CAP-1 regression (repaired in CC-01.7 by locking the GymProfile row
+  // before the binding read). SLICE-F-013 above guards the barrier setup.
+  it("D-CAP-1: with an existing gym and no binding, 5 concurrent identical Saves leave exactly one capability and no orphan", async () => {
+    const race = await raceSavesWithExistingGymAndNoBinding("d-cap-1");
+    expect(race.waitersSeen).toBe(5);
+    expect(race.capabilities).toHaveLength(1);
+    expect(race.capabilities.filter((capability) => capability.id !== race.bindings[0]?.loadingCapabilityId)).toEqual([]); // zero orphans
+    expect(race.applications[0]?.loadingCapabilityId).toBe(race.bindings[0]?.loadingCapabilityId); // audit points at the bound capability
+    expectResolvedExactlyOnce(race);
+  }, 30000);
 
   // Slice F — Final Save-vs-Apply Serialization Gate, task §4/§5 (mandatory).
   // A genuine real-Postgres race between contextual SAVE and SYSTEM numeric

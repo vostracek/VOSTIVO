@@ -9,7 +9,7 @@ import {
 import { createEntityId, validateEnumeratedListLoads, type EnumeratedListValidationError, type LoadingCapabilityV1 } from "@vostivo/domain";
 import type { ProgressionActorV1 } from "./actor.js";
 import { resolveExerciseDisplayName } from "./exercise-display-name.js";
-import { findDefaultGymProfileForAthlete, getOrCreateDefaultGymProfileForAthlete } from "./gym-profile.js";
+import { findDefaultGymProfileForAthlete, getOrCreateDefaultGymProfileForAthlete, lockGymProfileForCapabilityWrite } from "./gym-profile.js";
 import { resolveBoundCapability, resolveBoundCapabilityForUpdate } from "./loading-capability-lookup.js";
 import { bindExerciseToCapability, createLoadingCapability } from "./loading-capability-write.js";
 import { applySystemProgression, type ApplyOutcome, type ApplyRejectionReason } from "./progression-application-apply.js";
@@ -254,11 +254,13 @@ type ConfigurationSaveResult =
  * 1. Pre-validate the submitted configuration itself (domain rules —
  *    never reaches Postgres if malformed).
  * 2. ATOMIC configuration transaction: re-derive owner/mode/status/
- *    currency (task §14), get-or-create the default GymProfile, lock the
- *    exact exercise's existing binding+capability (`resolveBoundCapabilityForUpdate`
- *    — the ONLY resource this writer locks, so it cannot deadlock against
- *    the numeric Apply transaction's own `ProgramVersion`-first lock
- *    order, task §16), then — MANDATORY, Slice F's own final
+ *    currency (task §14), get-or-create the default GymProfile, lock that
+ *    GymProfile row (`lockGymProfileForCapabilityWrite`, D-CAP-1: serializes
+ *    Saves even when no binding exists yet), then lock the exact exercise's
+ *    existing binding+capability (`resolveBoundCapabilityForUpdate`). Never
+ *    `ProgramVersion`, and Apply never locks the GymProfile, so this cannot
+ *    deadlock against the numeric Apply transaction's own
+ *    `ProgramVersion`-first lock order (task §16), then — MANDATORY, Slice F's own final
  *    serialization gate — re-derive owner/mode/status/currency a SECOND
  *    time, using a plain unlocked read (never `ProgramVersion FOR UPDATE`,
  *    which would invert Apply's own lock order). The transaction may have
@@ -299,9 +301,14 @@ export async function saveGuidedLoadingSetup(
     if (athleteProfileId === null) return { outcome: "NOT_RECOVERABLE" };
     const gym = await getOrCreateDefaultGymProfileForAthlete(tx, athleteProfileId);
 
-    // The ONLY lock this writer ever takes — never `ProgramVersion` (task
-    // §3/§16), so it cannot invert numeric Apply's own lock order and
-    // cannot deadlock against it.
+    // D-CAP-1: when this exercise has no binding yet, the FOR UPDATE below
+    // finds no row to lock, so concurrent Saves would each create a
+    // capability. Serialize on the gym row first; numeric Apply never locks
+    // it, so the order stays gym -> binding/capability with no cycle.
+    await lockGymProfileForCapabilityWrite(tx, gym.id);
+
+    // Never `ProgramVersion` (task §3/§16), so this writer cannot invert
+    // numeric Apply's own lock order and cannot deadlock against it.
     const existing = await resolveBoundCapabilityForUpdate(tx, gym.id, initialContext.app.exerciseRef);
 
     // MANDATORY post-lock revalidation (Slice F final serialization gate,
