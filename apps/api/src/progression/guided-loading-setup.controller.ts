@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import type { GuidedLoadingSetupAttentionResponseV1, LoadingSetupContextResponseV1, SaveLoadingSetupResultResponseV1 } from "@vostivo/contracts";
 import { AuthGuard } from "../auth/auth.guard.js";
@@ -29,7 +29,7 @@ export class GuidedLoadingSetupController {
 
   @Get(":applicationId")
   @ApiOkResponse({ description: "Presentation-safe canonical context for one application's contextual loading setup." })
-  getContext(@CurrentActor() actor: AuthenticatedActor, @Param("applicationId") applicationId: string): Promise<LoadingSetupContextResponseV1> {
+  getContext(@CurrentActor() actor: AuthenticatedActor, @Param("applicationId", new ParseUUIDPipe()) applicationId: string): Promise<LoadingSetupContextResponseV1> {
     return this.guidedLoadingSetup.getContext(actor, applicationId);
   }
 
@@ -37,7 +37,7 @@ export class GuidedLoadingSetupController {
   @ApiOkResponse({ description: "Saves the loading configuration for one exact exercise and attempts the blocked SYSTEM progression retry." })
   save(
     @CurrentActor() actor: AuthenticatedActor,
-    @Param("applicationId") applicationId: string,
+    @Param("applicationId", new ParseUUIDPipe()) applicationId: string,
     @Body() request: SaveLoadingSetupRequestDto,
   ): Promise<SaveLoadingSetupResultResponseV1> {
     return this.guidedLoadingSetup.save(actor, applicationId, request);

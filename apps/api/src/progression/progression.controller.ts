@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import type {
   PendingProgressionApplicationsResponseV1,
@@ -34,7 +34,7 @@ export class ProgressionController {
   @ApiOkResponse({ description: "The live numeric proposal for one pending progression application, or why it is unavailable." })
   getProposal(
     @CurrentActor() actor: AuthenticatedActor,
-    @Param("applicationId") applicationId: string,
+    @Param("applicationId", new ParseUUIDPipe()) applicationId: string,
   ): Promise<ProgressionApplicationProposalResponseV1> {
     return this.progressionReview.getProposal(actor, applicationId);
   }
@@ -43,7 +43,7 @@ export class ProgressionController {
   @ApiOkResponse({ description: "The durable outcome of confirming Apply for one progression application." })
   apply(
     @CurrentActor() actor: AuthenticatedActor,
-    @Param("applicationId") applicationId: string,
+    @Param("applicationId", new ParseUUIDPipe()) applicationId: string,
     @Body() request: ApplyProgressionApplicationRequestDto,
   ): Promise<ProgressionApplicationCommandResponseV1> {
     return this.progressionReview.apply(actor, applicationId, request);
@@ -53,7 +53,7 @@ export class ProgressionController {
   @ApiOkResponse({ description: "The durable outcome of explicitly keeping the original prescription for one progression application." })
   keepOriginal(
     @CurrentActor() actor: AuthenticatedActor,
-    @Param("applicationId") applicationId: string,
+    @Param("applicationId", new ParseUUIDPipe()) applicationId: string,
     @Body() request: KeepOriginalProgressionApplicationRequestDto,
   ): Promise<ProgressionApplicationCommandResponseV1> {
     return this.progressionReview.keepOriginal(actor, applicationId, request);
