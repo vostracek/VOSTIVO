@@ -619,6 +619,21 @@ with the SQLCipher and UUIDv7 native gates before it.
   reality; the mobile client already only sends snapshot identities.
   Legacy slots without an `exerciseRef` keep the earlier behavior.
   Test: WDI-SYNC-011.
+- An existing `performedSetId` can only ever be updated by its own set's
+  command (CORE-FIX-01, CORE-AUDIT-01 F-01). Owning the command's session
+  proves nothing about a set id that already exists elsewhere. Before this
+  fix, `COMPLETE_SET_V1`'s `ON CONFLICT (id) DO UPDATE` let an athlete
+  overwrite another athlete's set (even in a `COMPLETED` session) from
+  their own session. Now another athlete's set is a stateless foreign-
+  ownership `REJECTED` (no receipt, no cursor row, generic outcome, nothing
+  about the foreign row revealed). The same athlete's set under another
+  performed exercise or session is a same-owner `REJECTED` with a persisted
+  receipt, before any write. The upsert re-asserts
+  `performed_exercise_id = excluded.performed_exercise_id` atomically on the
+  conflicting row, so a concurrent insert of the same id is never written
+  into either. Tests: OWN-001..011
+  (`performed-set-ownership.integration.test.ts`), including a 20-round
+  real concurrent race.
 - A `REJECTED` sync outcome cannot delete local workout reality — true by
   construction: `OutboxPort`'s interface has no delete-workout-data
   method at all, so `SyncEngine.applyAcknowledgement`'s `REJECTED` branch
