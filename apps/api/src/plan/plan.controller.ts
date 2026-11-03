@@ -47,7 +47,7 @@ export class PlanController {
   @ApiOkResponse({ description: "The Workout Preview for a planned workout owned by the authenticated athlete." })
   async getWorkoutPreview(
     @CurrentActor() actor: AuthenticatedActor,
-    @Param("plannedWorkoutId") plannedWorkoutId: string,
+    @Param("plannedWorkoutId", new ParseUUIDPipe()) plannedWorkoutId: string,
   ): Promise<WorkoutPreviewV1> {
     const preview = await this.planRead.getWorkoutPreview(actor, plannedWorkoutId);
     if (preview === undefined) {

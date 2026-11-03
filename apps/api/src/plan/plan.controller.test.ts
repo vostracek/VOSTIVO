@@ -271,7 +271,7 @@ describe("GET /api/v1/plan/* (auth boundary)", () => {
 
   it("GET /plan/workouts/:id: the id comes from the URL, but ownership still comes from the actor", async () => {
     fakeService.previewResult = {
-      plannedWorkoutId: "workout-1",
+      plannedWorkoutId: WORKOUT_ID,
       name: "Upper Body A",
       focus: null,
       estimatedDurationMinutes: 60,
@@ -279,22 +279,31 @@ describe("GET /api/v1/plan/* (auth boundary)", () => {
       hasActiveSession: false,
       canStart: true,
       exercises: [],
-      prescription: { schemaVersion: 1, prescriptionId: "workout-1", name: "Upper Body A", exercises: [] },
+      prescription: { schemaVersion: 1, prescriptionId: WORKOUT_ID, name: "Upper Body A", exercises: [] },
     };
 
-    const response = await inject("/plan/workouts/workout-1", { authorization: "Bearer valid-active" });
+    const response = await inject(`/plan/workouts/${WORKOUT_ID}`, { authorization: "Bearer valid-active" });
 
     expect(response.statusCode).toBe(200);
-    expect(fakeService.lastPreviewWorkoutId).toBe("workout-1");
+    expect(fakeService.lastPreviewWorkoutId).toBe(WORKOUT_ID);
     expect(fakeService.lastPreviewActor?.athleteProfileId).toBe(ACTIVE_IDENTITY.athleteProfileId);
   });
 
   it("GET /plan/workouts/:id: an undefined result (not found or not owned) maps to 404, no existence leakage", async () => {
     fakeService.previewResult = undefined;
 
-    const response = await inject("/plan/workouts/someone-elses-workout", { authorization: "Bearer valid-active" });
+    const response = await inject("/plan/workouts/44444444-4444-7444-8444-444444444444", { authorization: "Bearer valid-active" });
 
     expect(response.statusCode).toBe(404);
+  });
+
+  it("GET /plan/workouts/:id: a malformed id is a 400, never reaches the service (CORE-AUDIT-01 F-05: was a DB error -> 500)", async () => {
+    fakeService.lastPreviewWorkoutId = undefined;
+
+    const response = await inject("/plan/workouts/not-a-uuid", { authorization: "Bearer valid-active" });
+
+    expect(response.statusCode).toBe(400);
+    expect(fakeService.lastPreviewWorkoutId).toBeUndefined();
   });
 
   describe("POST /plan/workouts/:id/available-time-preview", () => {
