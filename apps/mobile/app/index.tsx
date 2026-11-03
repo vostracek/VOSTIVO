@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -19,6 +19,7 @@ import { sessionScheduleNote } from "../src/plan/plan-session-schedule";
 import { EquipmentSheet } from "../src/equipment/equipment-sheet";
 import { EQUIPMENT_COPY, equipmentAdjustedCount, equipmentAdjustedLabel } from "../src/equipment/equipment-flow";
 import { colors, radius, spacing, touchTarget, typography } from "../src/design/tokens";
+import { UnresolvedSyncMonitor, type UnresolvedSyncNotice } from "../src/workout/unresolved-sync-notice";
 
 /**
  * Athlete Mobile Today V1 Foundation + Progression Application V1 Slice
@@ -55,7 +56,7 @@ type GuidedLoadingSetupState =
   | { readonly status: "ready"; readonly item: GuidedLoadingSetupAttentionV1 | null };
 
 export default function TodayScreen(): React.JSX.Element {
-  const { availableTimeFlowPorts, equipmentFlowPorts, guidedLoadingSetupApiClient, missedWorkoutFlowPorts, planApplicationService, progressionApiClient, workoutSyncCoordinator } = useAthleteRuntime();
+  const { availableTimeFlowPorts, equipmentFlowPorts, guidedLoadingSetupApiClient, missedWorkoutFlowPorts, planApplicationService, progressionApiClient, unresolvedSyncPorts, workoutSyncCoordinator } = useAthleteRuntime();
   const router = useRouter();
   const [overviewState, setOverviewState] = useState<TodayOverviewState>({ status: "loading" });
   // Independent of the overview fetch for the same reason as Plan's own
@@ -87,6 +88,25 @@ export default function TodayScreen(): React.JSX.Element {
     [missedWorkoutFlowPorts, reload],
   );
   useEffect(() => () => missedController.dispose(), [missedController]);
+  // CC-03: a calm local-outbox notice, independent of every network read —
+  // re-read after every settled sync pass (which also covers app resume:
+  // foreground triggers a pass) and on every Today reload below.
+  // Created inside the effect (not memoized), so a re-run effect (Fast
+  // Refresh, StrictMode) never keeps a disposed monitor.
+  const [syncNotice, setSyncNotice] = useState<UnresolvedSyncNotice | null>(null);
+  const syncMonitorRef = useRef<UnresolvedSyncMonitor | null>(null);
+  useEffect(() => {
+    const monitor = new UnresolvedSyncMonitor(unresolvedSyncPorts, setSyncNotice, logTechnicalFailure);
+    syncMonitorRef.current = monitor;
+    monitor.start();
+    return () => {
+      monitor.dispose();
+      if (syncMonitorRef.current === monitor) syncMonitorRef.current = null;
+    };
+  }, [unresolvedSyncPorts]);
+  useEffect(() => {
+    void syncMonitorRef.current?.refresh();
+  }, [reloadToken]);
   const navigateToActiveWorkout = useCallback(() => {
     setAdjustTarget(null);
     // `replace`, not `push` — same as Today's own Start handling.
@@ -266,6 +286,7 @@ export default function TodayScreen(): React.JSX.Element {
             onSetUp={() => router.push(`/progression/${encodeURIComponent(guidedSetupItem.applicationId)}/loading-setup`)}
           />
         ) : null}
+        {syncNotice !== null ? <UnresolvedSyncNoticeView notice={syncNotice} /> : null}
       </ScrollView>
       <BottomNav active="today" />
       {missedState.kind === "ROLL_FORWARD" && missedState.reviewOpen ? (
@@ -292,6 +313,15 @@ export default function TodayScreen(): React.JSX.Element {
         />
       ) : null}
     </SafeAreaView>
+  );
+}
+
+/** CC-03: informational only — no action, because no in-app resolve/retry action exists. */
+function UnresolvedSyncNoticeView({ notice }: { notice: UnresolvedSyncNotice }): React.JSX.Element {
+  return (
+    <View style={styles.syncNotice} accessibilityRole="text" accessibilityLiveRegion="polite">
+      <Text style={styles.syncNoticeText}>{notice.message}</Text>
+    </View>
   );
 }
 
@@ -572,4 +602,14 @@ const styles = StyleSheet.create({
   reviewLoadLine: { ...typography.body, color: colors.signal },
   reviewSecondary: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
   reviewCta: { ...typography.bodyStrong, color: colors.signal, marginTop: spacing.sm },
+  syncNotice: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  syncNoticeText: { ...typography.caption, color: colors.textSecondary },
 });

@@ -20,7 +20,8 @@ import type {
   RestTimerStateV1,
   SetDraftV1,
 } from "./active-workout-session";
-import type { OutboxCommandRecord, OutboxPort } from "./outbox-port";
+import { mustWaitBehindRefused, type OutboxPosition } from "./outbox-dependency";
+import type { OutboxCommandRecord, OutboxPort, UnresolvedSyncSummary } from "./outbox-port";
 import { normalizeStoredPrescription } from "./prescription-compat";
 
 type Db = ExpoSQLiteDatabase<typeof schema>;
@@ -605,16 +606,47 @@ export class WorkoutRepository implements OutboxPort {
     // it would silently and permanently strand that command outside the
     // retry loop, violating the locked "local + outbox must eventually be
     // atomic" guarantee (CLAUDE.md).
-    const rows = db.all<{ command_id: string; payload_json: string }>(
-      sql`SELECT command_id, payload_json FROM sync_outbox
-          WHERE status IN ('PENDING', 'RETRY', 'SYNCING')
-          ORDER BY created_at ASC
-          LIMIT ${limit}`,
+    //
+    // CC-03: `rowid` breaks `created_at` ties (two commands in the same
+    // millisecond) in insertion order — a session's commands must be sent
+    // in the order they were issued.
+    if (!hasBlockedCommands(db)) {
+      const rows = db.all<OutboxRow>(
+        sql`SELECT command_id, payload_json FROM sync_outbox
+            WHERE status IN ('PENDING', 'RETRY', 'SYNCING')
+            ORDER BY created_at ASC, rowid ASC
+            LIMIT ${limit}`,
+      );
+      return rows.map((row) => toOutboxRecord(db, row));
+    }
+
+    // CC-03: at least one command is BLOCKED. Every command that may depend
+    // on it (`mustWaitBehindRefused`) is held — never sent ahead of it — and,
+    // unlike a LIMIT over the raw table, held commands never take a slot of
+    // the selection window, so independent sessions keep syncing.
+    const sendable: OutboxCommandRecord[] = [];
+    for (const record of readHoldablePendingCommands(db)) {
+      if (record.held) continue;
+      sendable.push(record.record);
+      if (sendable.length >= limit) break;
+    }
+    return sendable;
+  }
+
+  /**
+   * CC-03: unresolved sync state for the UI — commands that will not reach
+   * the server without attention. `waitingOnBlocked` = pending commands held
+   * behind a BLOCKED command of their session. REJECTED/CONFLICT are the
+   * server's own final per-command outcomes. Nothing here is ever deleted.
+   */
+  async getUnresolvedSyncSummary(): Promise<UnresolvedSyncSummary> {
+    const db = await this.openDatabase();
+    const counts = db.all<{ status: string; n: number }>(
+      sql`SELECT status, count(*) AS n FROM sync_outbox WHERE status IN ('BLOCKED', 'REJECTED', 'CONFLICT') GROUP BY status`,
     );
-    return rows.map((row) => ({
-      commandId: row.command_id,
-      payload: JSON.parse(row.payload_json) as WorkoutCommandV1,
-    }));
+    const countOf = (status: string): number => counts.find((row) => row.status === status)?.n ?? 0;
+    const waitingOnBlocked = hasBlockedCommands(db) ? readHoldablePendingCommands(db).filter((record) => record.held).length : 0;
+    return { blocked: countOf("BLOCKED"), waitingOnBlocked, rejected: countOf("REJECTED"), conflicted: countOf("CONFLICT") };
   }
 
   async markSyncing(commandId: string): Promise<void> {
@@ -637,6 +669,21 @@ export class WorkoutRepository implements OutboxPort {
     await this.setOutboxStatus(commandId, "REJECTED");
   }
 
+  async markBlocked(commandId: string): Promise<void> {
+    await this.setOutboxStatus(commandId, "BLOCKED");
+  }
+
+  async releaseBlockedCommands(): Promise<readonly string[]> {
+    const db = await this.openDatabase();
+    const nowIso = new Date().toISOString();
+    let released: string[] = [];
+    db.transaction((tx) => {
+      released = tx.all<{ command_id: string }>(sql`SELECT command_id FROM sync_outbox WHERE status = 'BLOCKED'`).map((row) => row.command_id);
+      tx.run(sql`UPDATE sync_outbox SET status = 'RETRY', updated_at = ${nowIso} WHERE status = 'BLOCKED'`);
+    });
+    return released;
+  }
+
   private async setOutboxStatus(
     commandId: string,
     status: string,
@@ -656,6 +703,70 @@ export class WorkoutRepository implements OutboxPort {
       );
     }
   }
+}
+
+interface OutboxRow {
+  readonly command_id: string;
+  readonly payload_json: string;
+}
+
+function toOutboxRecord(db: Db, row: OutboxRow): OutboxCommandRecord {
+  const payload = JSON.parse(row.payload_json) as WorkoutCommandV1;
+  return { commandId: row.command_id, payload, workoutSessionId: workoutSessionIdOf(db, payload) };
+}
+
+/**
+ * CC-03: the local session a command belongs to (its dependency group).
+ * `REOPEN_SET_V1` names only its performed set, so its session is resolved
+ * from local workout data; `null` if it cannot be (never held then).
+ */
+function workoutSessionIdOf(db: Db, payload: WorkoutCommandV1): string | null {
+  // Read defensively: an outbox row is whatever an earlier app version (or
+  // a corrupted write) stored, not necessarily a well-formed command.
+  const fields = payload as { readonly workoutSessionId?: unknown; readonly performedSetId?: unknown };
+  if (typeof fields.workoutSessionId === "string") return fields.workoutSessionId;
+  if (payload.type !== "REOPEN_SET_V1" || typeof fields.performedSetId !== "string") return null;
+  const row = db.get<{ workout_session_id: string }>(
+    sql`SELECT pe.workout_session_id AS workout_session_id
+        FROM local_performed_sets ps
+        JOIN local_performed_exercises pe ON pe.id = ps.performed_exercise_id
+        WHERE ps.id = ${fields.performedSetId}`,
+  );
+  return isRowPresent(row) ? row.workout_session_id : null;
+}
+
+function hasBlockedCommands(db: Db): boolean {
+  return isRowPresent(db.get<{ one: number }>(sql`SELECT 1 AS one FROM sync_outbox WHERE status = 'BLOCKED' LIMIT 1`));
+}
+
+/**
+ * CC-03: every pending command in outbox order, each marked `held` when it
+ * may depend on an earlier BLOCKED command. Reads the START commands of
+ * every status too (a SYNCED START still tells when its session began).
+ * Only used while something is BLOCKED.
+ */
+function readHoldablePendingCommands(db: Db): { readonly record: OutboxCommandRecord; readonly held: boolean }[] {
+  const rows = db.all<OutboxRow & { readonly status: string; readonly command_type: string }>(
+    sql`SELECT command_id, payload_json, status, command_type FROM sync_outbox
+        WHERE status IN ('PENDING', 'RETRY', 'SYNCING', 'BLOCKED') OR command_type = 'START_WORKOUT_SESSION_V1'
+        ORDER BY created_at ASC, rowid ASC`,
+  );
+  const startPositions = new Map<string, number>();
+  const blocked: OutboxPosition[] = [];
+  const pending: { readonly record: OutboxCommandRecord; readonly position: OutboxPosition }[] = [];
+  for (const [index, row] of rows.entries()) {
+    const record = toOutboxRecord(db, row);
+    const position: OutboxPosition = { position: index, workoutSessionId: record.workoutSessionId ?? null };
+    if (row.command_type === "START_WORKOUT_SESSION_V1" && position.workoutSessionId !== null && !startPositions.has(position.workoutSessionId)) {
+      startPositions.set(position.workoutSessionId, index);
+    }
+    if (row.status === "BLOCKED") blocked.push(position);
+    else if (row.status === "PENDING" || row.status === "RETRY" || row.status === "SYNCING") pending.push({ record, position });
+  }
+  return pending.map(({ record, position }) => ({
+    record,
+    held: mustWaitBehindRefused(position, blocked, (sessionId) => startPositions.get(sessionId)),
+  }));
 }
 
 function insertOutboxCommand(tx: Db, command: WorkoutCommandV1, nowIso: string): void {

@@ -1,6 +1,7 @@
 import { WorkoutRepository } from "../workout/workout-repository";
 import { DEFAULT_BATCH_SIZE, SyncEngine } from "../workout/sync-engine";
 import { WorkoutSyncCoordinator, type WorkoutSyncLogger } from "../infrastructure/workout-sync-coordinator";
+import type { UnresolvedSyncPorts } from "../workout/unresolved-sync-notice";
 import { FetchWorkoutSyncApiClient, type WorkoutSyncApiClient } from "../workout/workout-sync-api-client";
 import { WorkoutApplicationService } from "../workout/workout-application-service";
 import { AdjustedWorkoutStartService } from "../workout/adjusted-workout-start";
@@ -63,6 +64,8 @@ export interface AthleteRuntime {
   readonly equipmentFlowPorts: EquipmentFlowPorts;
   /** Progress & Feedback V1 Slice B — read-only Progress reads. */
   readonly progressApiClient: ProgressApiClient;
+  /** CC-03 — Today's unresolved-sync notice ports (stable identity). */
+  readonly unresolvedSyncPorts: UnresolvedSyncPorts;
   /**
    * Auth Slice C — the IdentityGate grants/withdraws outbox sync for this
    * owner (verified online + valid session). Granting it requests a sync;
@@ -154,6 +157,11 @@ export function createAthleteRuntime(input: AthleteRuntimeInput): AthleteRuntime
       retryTrainingTimeZone: () => trainingTimeZoneBootstrapper.retry(),
     },
     progressApiClient: new FetchProgressApiClient(apiBaseUrl, authTokenProvider),
+    unresolvedSyncPorts: {
+      readSummary: () => workoutApplicationService.getUnresolvedSyncSummary(),
+      isRequestRejected: () => workoutSyncCoordinator.requestRejectedAtLastAttempt,
+      onSyncPassSettled: (listener) => workoutSyncCoordinator.onPassSettled(listener),
+    },
     setSyncPermitted(permitted) {
       if (disposed || syncPermit.isPermitted === permitted) return;
       syncPermit.set(permitted);

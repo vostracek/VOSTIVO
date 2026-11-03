@@ -210,6 +210,80 @@ describe("WorkoutSyncCoordinator", () => {
     expect(coordinator.hasScheduledRetry).toBe(false);
   });
 
+  it("CC-03: a full batch the server refused at request level (systemic 400) neither loops immediately nor schedules a timer retry", async () => {
+    const refused: SyncPendingCommandsResult = { attempted: 2, synced: 0, retried: 0, conflicted: 0, rejected: 0, requestRejected: true };
+    const sync = scriptedSync(refused);
+    const coordinator = new WorkoutSyncCoordinator(sync, { scheduler: fakeTimerScheduler, batchSize: 2 });
+
+    coordinator.requestSync("launch");
+    await flush();
+    await vi.advanceTimersByTimeAsync(300_000);
+
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(coordinator.hasScheduledRetry).toBe(false);
+
+    coordinator.requestSync("mutation");
+    await flush();
+    expect(sync).toHaveBeenCalledTimes(2);
+  });
+
+  it("CC-03: a full batch that isolated and blocked a command continues with the next batch right away", async () => {
+    const isolated: SyncPendingCommandsResult = { attempted: 2, synced: 1, retried: 0, conflicted: 0, rejected: 0, blocked: 1 };
+    const sync = scriptedSync(isolated, EMPTY);
+    const coordinator = new WorkoutSyncCoordinator(sync, { scheduler: fakeTimerScheduler, batchSize: 2 });
+
+    coordinator.requestSync("launch");
+    await flush();
+
+    expect(sync).toHaveBeenCalledTimes(2);
+    expect(coordinator.hasScheduledRetry).toBe(false);
+  });
+
+  it("CC-03: pass-settled listeners run after every pass — success, failure and pause — and a throwing listener never affects sync", async () => {
+    const sync = scriptedSync(SYNCED, new Error("boom"), new RuntimeOwnerMismatchError());
+    const coordinator = new WorkoutSyncCoordinator(sync, { scheduler: fakeTimerScheduler });
+    let settled = 0;
+    coordinator.onPassSettled(() => {
+      settled += 1;
+    });
+    coordinator.onPassSettled(() => {
+      throw new Error("listener bug");
+    });
+
+    coordinator.requestSync("launch");
+    await flush();
+    coordinator.requestSync("mutation");
+    await flush();
+    coordinator.requestSync("foreground");
+    await flush();
+
+    expect(settled).toBe(3);
+    expect(sync).toHaveBeenCalledTimes(3);
+  });
+
+  it("CC-03: requestRejectedAtLastAttempt follows the last pass the server answered; a paused or failed pass keeps it", async () => {
+    const refused: SyncPendingCommandsResult = { attempted: 2, synced: 0, retried: 0, conflicted: 0, rejected: 0, requestRejected: true };
+    const sync = scriptedSync(refused, new RuntimeOwnerMismatchError(), TRANSIENT_FAILURE, EMPTY, SYNCED);
+    const coordinator = new WorkoutSyncCoordinator(sync, { scheduler: fakeTimerScheduler });
+
+    coordinator.requestSync("launch");
+    await flush();
+    expect(coordinator.requestRejectedAtLastAttempt).toBe(true);
+    coordinator.requestSync("reverified");
+    await flush();
+    expect(coordinator.requestRejectedAtLastAttempt).toBe(true);
+    coordinator.requestSync("mutation");
+    await flush();
+    expect(coordinator.requestRejectedAtLastAttempt).toBe(true);
+    coordinator.requestSync("mutation");
+    await flush();
+    expect(coordinator.requestRejectedAtLastAttempt).toBe(true);
+    coordinator.requestSync("mutation");
+    await flush();
+    expect(coordinator.requestRejectedAtLastAttempt).toBe(false);
+    coordinator.dispose();
+  });
+
   it.each([
     ["REJECTED", REJECTED],
     ["CONFLICT", CONFLICTED],
