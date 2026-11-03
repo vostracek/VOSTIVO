@@ -634,6 +634,48 @@ with the SQLCipher and UUIDv7 native gates before it.
   into either. Tests: OWN-001..011
   (`performed-set-ownership.integration.test.ts`), including a 20-round
   real concurrent race.
+- A structurally malformed prescription snapshot can no longer turn sync
+  into a deterministic HTTP 500 (CORE-FIX-02, CORE-AUDIT-01 F-02).
+  - **Root cause:** START checked only the snapshot's top level
+    (`schemaVersion`, `prescriptionId`, `name`, `exercises` is an array).
+    An unplanned START with e.g. `exercises: [null]`, an exercise without
+    `sets`, or `sets: [null]` was `APPLIED` and persisted. The next
+    `COMPLETE_SET_V1` for that session threw a `TypeError` while matching
+    the snapshot, so the whole batch returned 500. The mobile client treats
+    5xx as transient (`RETRY`) and re-sends the same oldest-first batch, so
+    every later command, including other sessions, never synced. CC-03
+    isolation covers only 400/413/422 and does not apply.
+  - **START** now also requires every exercise to be an object with string
+    `prescriptionExerciseId`, `exerciseRef` string or null, string
+    `displayName`, number `order`, `substitution` absent or an object, and
+    `sets` an array of objects with string `prescriptionSetId` and number
+    `order`. Anything else is `REJECTED` "malformed command": no session,
+    no receipt, no cursor row, no job. `setType`, `restSeconds`,
+    `targetReps` and `targetLoad` are deliberately not required, so legacy
+    snapshots still sync. Compatibility (SNAP-008): the only previously
+    accepted shape that is now refused is an unplanned exercise with no
+    `exerciseRef` key. No producer emits it, the planned path already
+    refused it, and every planned set of such a session was already
+    `REJECTED`.
+  - **`COMPLETE_SET_V1`** reads the persisted snapshot as untrusted JSON. A
+    row stored before this fix with a broken envelope gives a same-owner
+    `REJECTED` with a persisted receipt. Nothing is written, and the row is
+    never rewritten.
+  - **Infrastructure failures** (database or transaction errors) still
+    throw and return 5xx, so the client keeps retrying. No arbitrary 500 is
+    converted into `REJECTED`.
+  - **Unchanged:** per-command transactions, receipt semantics, the wire
+    format and the mobile client.
+  - **Remaining limits:**
+    - Progress and progression-evidence readers still cast the persisted
+      snapshot. Rows stored before this fix can still fail those reads, but
+      never sync.
+    - Nested set fields (`targetReps`, `targetLoad`, `setType`) are not
+      validated.
+    - Any other deterministic server bug that returns 500 would still stall
+      the outbox. CC-03's retry policy is unchanged.
+  - **Tests:** SNAP-001..008 (`snapshot-validation.integration.test.ts`,
+    real HTTP pipeline plus Postgres).
 - A `REJECTED` sync outcome cannot delete local workout reality — true by
   construction: `OutboxPort`'s interface has no delete-workout-data
   method at all, so `SyncEngine.applyAcknowledgement`'s `REJECTED` branch
