@@ -56,8 +56,13 @@ apps/mobile/src/local-database/schema.ts       local_workout_sessions,
                                                 local_performed_sets,
                                                 sync_outbox
 apps/mobile/src/local-database/migrations.ts   hand-rolled, additive,
-                                                idempotent CREATE TABLE IF
-                                                NOT EXISTS statements
+                                                one statement each; applied
+                                                atomically with the ledger
+                                                (see "Local migration
+                                                integrity" below)
+apps/mobile/src/local-database/migration-store.ts
+                                                the production migration
+                                                store (device + tests)
 apps/mobile/src/workout/workout-repository.ts  all local reads/writes;
                                                 implements OutboxPort
 ```
@@ -84,6 +89,103 @@ adapter). Fixed at all three call sites
 `null` and `undefined` explicitly. This is precisely why this task's
 mandatory native verification step exists — "do not claim PASS from unit
 tests alone."
+
+### Local migration integrity (CC-02, D-MIG-1)
+
+**Defect (fixed).** The runner used to execute a migration's statement and
+insert its `__local_migrations` ledger row as two separate autocommit
+writes. `CREATE TABLE IF NOT EXISTS` tolerates a crash between them;
+`ALTER TABLE ... ADD COLUMN` does not — on the next launch it threw
+`duplicate column name`, `openKeyedDatabase` failed, and the athlete got
+`LOCAL_DATA_UNAVAILABLE` on **every** launch, with all workout data intact
+but unreachable.
+
+**Atomicity.** `runLocalMigrations` now runs, per migration, one SQLite
+write transaction on the database's own connection
+(`LocalMigrationStore.runInTransaction` → drizzle's sync
+`db.transaction(...)` → `begin` / `commit` / `rollback`, the mechanism the
+workout repository's writes already use on device): re-check the ledger, inspect the schema, run the
+statement, insert the ledger row, commit. SQLite DDL is transactional, so a
+crash or error anywhere leaves the migration either fully applied **and**
+recorded, or not applied at all. Transactions are never nested.
+
+**Reconciling databases written by the old runner.** The old runner could
+leave a migration's object committed with no ledger row. Such a migration
+is recorded without re-running **only on textual proof** that the object is
+exactly what that frozen historical statement creates. SQLite stores a
+table's definition verbatim in `sqlite_master.sql` — the `CREATE TABLE`
+statement minus `IF NOT EXISTS` and the trailing `;`; each `ADD COLUMN`
+appends `, <column definition>` to it (pinned per migration by
+`CC02-MIG-018`). That text carries every column type, PRIMARY KEY,
+NOT NULL, DEFAULT, REFERENCES, UNIQUE, CHECK and COLLATE; matching column
+names alone would prove none of it.
+
+| Unrecorded migration, actual schema | Action |
+| --- | --- |
+| object absent | run the statement and record it, in one transaction |
+| `CREATE_TABLE`: stored definition **equals** the historical statement's stored form | record **without** re-running (`reconciled`) |
+| `ADD_COLUMN`: `pragma_table_info` type / NOT NULL / DEFAULT match **and** the stored definition contains `, <exact column definition>` followed by `,` or `)` | record **without** re-running (`reconciled`) |
+| anything else (different type, key, nullability, default, FK, CHECK, COLLATE, column set; other whitespace or formatting; missing table for ADD COLUMN) | `LocalMigrationReconciliationError` — fail closed, nothing written |
+
+The last row is deliberately strict: a table that is equivalent but was
+created by some other text (e.g. re-formatted) is treated as ambiguous and
+not recorded. Only this app's runner ever created these tables, from these
+exact strings, so a legitimate old partial migration always matches.
+
+**Post-run check (weaker, by design).** After the loop every migration's
+object must exist: the table, all its declared column names, and each added
+column with its declared type / NOT NULL / DEFAULT. This is a *presence*
+guard against a recorded-but-missing object — not an equivalence proof
+(the stored text of an altered table no longer equals its CREATE statement).
+Equivalence is proven only where it is needed: before recording an
+unrecorded object.
+
+**Downgrade (older build, newer database) — pre-existing risk, unchanged
+by CC-02.** Ledger rows with ids unknown to this build are ignored, exactly
+as before CC-02, and extra tables/columns pass the presence check. An older
+build therefore opens a database a newer build migrated, but nothing
+guarantees its writes remain valid against newer columns (e.g. a future
+`NOT NULL` column without a default). If a future migration rebuilds a
+table this build knows, the presence check may fail closed — data intact,
+`LOCAL_DATA_UNAVAILABLE`. Downgrades are not a supported path; a future
+migration that is not purely additive must address this explicitly.
+
+**Recovery path for a fail-closed database.** The failing migration's
+transaction rolled back, so the file holds exactly what it held before the
+launch — every session, set, draft and outbox command (with its
+`command_id`) is preserved, and the open is retried unchanged on every
+launch (no partial writes accumulate). The app shows the existing
+`LOCAL_DATA_UNAVAILABLE` / `OPEN_FAILED` state. Recovery is an app update
+whose migration code (or a new, reviewed forward migration) handles the
+reported shape — the error message names the migration and the actual vs.
+expected schema. The athlete must **not** be told to reinstall or clear
+data. *Follow-up (not in CC-02):* a distinct LOCAL_DATA_UNAVAILABLE reason
+and diagnostic for this error.
+
+**Verification.** `apps/mobile/src/local-database/migrations.crash-recovery.test.ts`
+kills a real child `node` process (SIGKILL) before a statement, between the
+statement and the ledger insert, and between the ledger insert and commit,
+on disposable SQLite files, then reopens through the real app path
+(`openTestLocalDatabase` → `createLocalMigrationStore`); it also builds the
+exact half-migrated file the old runner produced and proves workout rows,
+outbox payloads and command ids survive reconciliation byte-for-byte.
+CC-02B adds same-column-names impostor tables (wrong type, missing
+PRIMARY KEY / NOT NULL / FOREIGN KEY, extra CHECK, missing composite key,
+different DEFAULT) and impostor columns (extra CHECK / FOREIGN KEY, other
+COLLATE): each fails closed, with schema, ledger and rows unchanged.
+
+**What is and is not verified.** All of the above runs on Node's
+`node:sqlite` (SQLite 3.53) through drizzle's real expo driver code and the
+production migration store. The production store issues schema
+inspection, migration SQL and the ledger insert through the one drizzle
+session over the one `expo-sqlite` connection opened in `client.ts`, and
+drizzle rolls back and rethrows on any error. **Not yet verified on a
+device:** the same behavior under SQLCipher on iOS/Android — DDL rollback
+inside `begin`/`rollback`, `pragma_table_info(?)` with a bound parameter,
+and the exact `sqlite_master.sql` text that SQLCipher's SQLite version
+stores — **UNVERIFIED**: if it differs, a legitimately half-migrated
+database fails closed (no data loss) instead of reconciling. Until that
+native run passes, these guarantees are claimed for `node:sqlite` only.
 
 ## Sync protocol
 

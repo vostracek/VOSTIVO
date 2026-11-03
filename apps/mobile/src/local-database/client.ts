@@ -1,13 +1,12 @@
 import { openDatabaseSync, type SQLiteDatabase } from "expo-sqlite";
-import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/expo-sqlite";
 import * as schema from "./schema";
 import { generateDatabaseKey } from "../infrastructure/database-key";
 import { getSecureValue, setSecureValue } from "../infrastructure/secure-store";
-import { runLocalMigrations, type LocalMigrationStore } from "./migrations";
-import { isRowPresent } from "./row-presence";
+import { runLocalMigrations } from "./migrations";
+import { createLocalMigrationStore } from "./migration-store";
 import { openAthleteDatabase, type AthleteDatabasePorts, type DatabaseFileState, type OpenAthleteDatabaseResult } from "./athlete-database";
-import type { AthleteDatabaseHandle, LocalDatabase } from "./athlete-database-handle";
+import type { AthleteDatabaseHandle } from "./athlete-database-handle";
 
 /**
  * Opens THE local SQLCipher-encrypted database of one verified athlete
@@ -59,7 +58,7 @@ function openKeyedDatabase(databaseName: string, key: string): AthleteDatabaseHa
     verifyEncryptedDatabaseOpens(nativeDb);
     enablePragmas(nativeDb);
     const db = drizzle(nativeDb, { schema });
-    runLocalMigrations(createMigrationStore(db));
+    runLocalMigrations(createLocalMigrationStore(db));
     return { db, close: () => nativeDb.closeAsync() };
   } catch (error) {
     nativeDb.closeSync();
@@ -96,25 +95,4 @@ function verifyEncryptedDatabaseOpens(nativeDb: SQLiteDatabase): void {
 
 function enablePragmas(nativeDb: SQLiteDatabase): void {
   nativeDb.execSync("PRAGMA foreign_keys = ON;");
-}
-
-function createMigrationStore(db: LocalDatabase): LocalMigrationStore {
-  return {
-    ensureMigrationsTable: () => {
-      db.run(sql`CREATE TABLE IF NOT EXISTS __local_migrations (
-        id TEXT PRIMARY KEY,
-        applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );`);
-    },
-    isApplied: (id) => {
-      const row = db.get<{ id: string }>(sql`SELECT id FROM __local_migrations WHERE id = ${id}`);
-      return isRowPresent(row);
-    },
-    execute: (statement) => {
-      db.run(sql.raw(statement));
-    },
-    markApplied: (id) => {
-      db.run(sql`INSERT INTO __local_migrations (id) VALUES (${id})`);
-    },
-  };
 }

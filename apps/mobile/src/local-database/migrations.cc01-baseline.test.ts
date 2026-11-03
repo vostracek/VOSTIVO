@@ -56,6 +56,30 @@ function sqliteStore(native: DatabaseSync, options: StoreOptions = {}): LocalMig
       if (id === options.crashBeforeRecording) throw new SimulatedCrash();
       native.prepare("INSERT INTO __local_migrations (id) VALUES (?)").run(id);
     },
+    // Real SQLite transaction semantics: a SimulatedCrash thrown inside rolls
+    // back the statement together with the (not yet written) ledger row.
+    runInTransaction: (work) => {
+      native.exec("BEGIN;");
+      try {
+        const result = work();
+        native.exec("COMMIT;");
+        return result;
+      } catch (error) {
+        native.exec("ROLLBACK;");
+        throw error;
+      }
+    },
+    tableSql: (table) =>
+      (native.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").all(table)[0] as { sql: string } | undefined)?.sql ?? null,
+    tableColumns: (table) => {
+      const rows = native.prepare('SELECT name, type, "notnull" AS not_null, dflt_value FROM pragma_table_info(?)').all(table) as {
+        name: string;
+        type: string;
+        not_null: number;
+        dflt_value: string | null;
+      }[];
+      return rows.length === 0 ? null : rows.map((row) => ({ name: row.name, type: row.type, notNull: row.not_null === 1, defaultValue: row.dflt_value }));
+    },
   };
 }
 
@@ -166,17 +190,18 @@ describe("CC-01 local migrations (real SQLite)", () => {
     expect(recordedIds(native)).toEqual(EXPECTED_MIGRATION_IDS);
   });
 
-  // CC01-KNOWN-DEFECT D-MIG-1: `runLocalMigrations` runs the statement and
-  // `markApplied` outside one transaction, and ADD COLUMN is not idempotent.
-  // The next open currently throws "duplicate column name" on every attempt.
-  it.fails.each([
+  // D-MIG-1 (repaired in CC-02): the statement and `markApplied` now commit
+  // in one transaction, so a crash between them rolls both back. These were
+  // `it.fails` (CC01-KNOWN-DEFECT) until the repair; real-SIGKILL coverage is
+  // in migrations.crash-recovery.test.ts.
+  it.each([
     "0005_local_workout_sessions_completed_at",
     "0006_local_performed_exercises_exercise_ref",
     "0009_local_workout_sessions_last_issued_session_seq",
     "0010_local_workout_sessions_finish_seq",
     "0011_local_performed_sets_set_type",
     "0012_local_workout_sessions_available_time_application",
-  ])("CC01-KNOWN-DEFECT D-MIG-1 (desired): a crash between ALTER TABLE and recording must be recoverable — %s", (id) => {
+  ])("CC01-MIG-006 (D-MIG-1 repaired): a crash between ALTER TABLE and recording is recoverable — %s", (id) => {
     migrateUntilCrash(native, { crashBeforeRecording: id });
 
     runLocalMigrations(sqliteStore(native));
