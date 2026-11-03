@@ -8,7 +8,7 @@ import {
   workoutSessions,
   type Database,
 } from "@vostivo/database";
-import { validateExternalWeightLoad, type WorkoutPrescriptionV1 } from "@vostivo/domain";
+import { validateExternalWeightLoad } from "@vostivo/domain";
 import { claimPlannedOccurrence, enqueueProgressionEvaluateSession } from "@vostivo/progression-application";
 import { createLogger } from "@vostivo/observability";
 import { resolveStartProvenance } from "../plan/planned-provenance.js";
@@ -353,13 +353,27 @@ async function applyStartWorkoutSession(
  * not contain (e.g. one Available-Time removed), or claim a planned set for
  * an unplanned exercise. A legacy slot without an `exerciseRef` keeps the
  * previous behavior (the mobile client refuses to complete those).
+ *
+ * Reads the PERSISTED snapshot as untrusted JSON (CORE-FIX-02): a row
+ * stored before START validated the exercise/set envelope may be
+ * structurally broken. A slot that cannot be proven to exist never matches
+ * (same-owner REJECTED, receipt persisted) — never a TypeError -> HTTP 500.
  */
-function matchesSessionPrescription(snapshot: WorkoutPrescriptionV1, command: CompleteSetCommandV1): boolean {
+function matchesSessionPrescription(snapshot: unknown, command: CompleteSetCommandV1): boolean {
   if (command.prescriptionExerciseId === null) return command.prescriptionSetId === null;
-  const exercise = snapshot.exercises.find((e) => e.prescriptionExerciseId === command.prescriptionExerciseId);
-  if (exercise === undefined) return false;
-  if (exercise.exerciseRef !== null && exercise.exerciseRef !== command.exerciseRef) return false;
-  return command.prescriptionSetId === null || exercise.sets.some((set) => set.prescriptionSetId === command.prescriptionSetId);
+  const exercises = isRecord(snapshot) ? snapshot["exercises"] : undefined;
+  if (!Array.isArray(exercises)) return false;
+  const exercise: unknown = exercises.find((e) => isRecord(e) && e["prescriptionExerciseId"] === command.prescriptionExerciseId);
+  if (!isRecord(exercise)) return false;
+  const exerciseRef = exercise["exerciseRef"];
+  if (exerciseRef !== null && exerciseRef !== command.exerciseRef) return false;
+  if (command.prescriptionSetId === null) return true;
+  const sets = exercise["sets"];
+  return Array.isArray(sets) && sets.some((set) => isRecord(set) && set["prescriptionSetId"] === command.prescriptionSetId);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function applyCompleteSet(
@@ -418,7 +432,7 @@ async function applyCompleteSet(
     return { outcome: "REJECTED", sessionId, progressionTriggerSessionId: null };
   }
 
-  if (!matchesSessionPrescription(session.prescriptionSnapshot as WorkoutPrescriptionV1, command)) {
+  if (!matchesSessionPrescription(session.prescriptionSnapshot, command)) {
     return { outcome: "REJECTED", sessionId, progressionTriggerSessionId: null };
   }
 

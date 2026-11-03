@@ -115,6 +115,36 @@ function isPrescriptionShapeValid(value: Record<string, unknown>): boolean {
     value["schemaVersion"] === 1 &&
     typeof value["prescriptionId"] === "string" &&
     typeof value["name"] === "string" &&
-    Array.isArray(value["exercises"])
+    Array.isArray(value["exercises"]) &&
+    value["exercises"].every(isPrescribedExerciseEnvelopeValid)
   );
+}
+
+/**
+ * CORE-FIX-02 (CORE-AUDIT-01 F-02): the snapshot is persisted verbatim and
+ * later read as `WorkoutPrescriptionV1` (COMPLETE_SET binding, Progress,
+ * progression evidence). A structurally broken exercise/set envelope used
+ * to be accepted here and then crash a later command into a deterministic
+ * HTTP 500 that the mobile outbox retries forever. Only the structural
+ * identity envelope is checked — deliberately NOT `setType`/`restSeconds`/
+ * `targetReps`/`targetLoad`, so legacy snapshots frozen before those fields
+ * existed (see apps/mobile/src/workout/prescription-compat.ts) still sync.
+ */
+function isPrescribedExerciseEnvelopeValid(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const exerciseRef = value["exerciseRef"];
+  const substitution = value["substitution"];
+  return (
+    typeof value["prescriptionExerciseId"] === "string" &&
+    (exerciseRef === null || typeof exerciseRef === "string") &&
+    typeof value["displayName"] === "string" &&
+    typeof value["order"] === "number" &&
+    (substitution === undefined || isRecord(substitution)) &&
+    Array.isArray(value["sets"]) &&
+    value["sets"].every((set) => isRecord(set) && typeof set["prescriptionSetId"] === "string" && typeof set["order"] === "number")
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
