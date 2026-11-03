@@ -1,11 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
-import { sql } from "drizzle-orm";
 // The driver subpath, not the package index: the index also re-exports the
 // live-query helper, which imports native `expo-sqlite` at runtime.
 import { drizzle, type ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite/driver";
 import * as schema from "../schema";
 import { runLocalMigrations } from "../migrations";
-import { isRowPresent } from "../row-presence";
+import { createLocalMigrationStore } from "../migration-store";
 
 /**
  * TEST-ONLY: a REAL SQLite engine (Node's built-in `node:sqlite`) behind
@@ -58,11 +57,11 @@ export function openTestLocalDatabase(path: string): TestDatabaseConnection {
   const native = new DatabaseSync(path);
   native.exec("PRAGMA foreign_keys = ON;");
   const db = drizzle(toExpoClient(native), { schema });
-  runLocalMigrations({
-    ensureMigrationsTable: () => native.exec("CREATE TABLE IF NOT EXISTS __local_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')));"),
-    isApplied: (id) => isRowPresent(db.get<{ id: string }>(sql`SELECT id FROM __local_migrations WHERE id = ${id}`)),
-    execute: (statement) => native.exec(statement),
-    markApplied: (id) => db.run(sql`INSERT INTO __local_migrations (id) VALUES (${id})`),
-  });
+  try {
+    runLocalMigrations(createLocalMigrationStore(db));
+  } catch (error) {
+    native.close();
+    throw error;
+  }
   return { db, exec: (statement) => native.exec(statement), close: () => native.close() };
 }

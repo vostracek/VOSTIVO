@@ -1,16 +1,56 @@
 import { describe, expect, it } from "vitest";
-import { runLocalMigrations, type LocalMigrationStore } from "./migrations";
+import { LOCAL_MIGRATIONS, runLocalMigrations, type LocalColumnInfo, type LocalMigrationStore } from "./migrations";
 import { isRowPresent } from "./row-presence";
+
+/**
+ * A fake schema for the fake stores: executing a migration's statement adds
+ * exactly the objects it declares, so the runner's post-run schema check
+ * sees what a real database would. Transactions are pass-through — real
+ * atomicity is covered on real SQLite files in migrations.crash-recovery.test.ts.
+ */
+function createFakeSchema(): Pick<LocalMigrationStore, "runInTransaction" | "tableColumns" | "tableSql"> & { apply(statement: string): void } {
+  const tables = new Map<string, LocalColumnInfo[]>();
+  const definitions = new Map<string, string>();
+  return {
+    apply: (statement) => {
+      const migration = LOCAL_MIGRATIONS.find((candidate) => candidate.statement === statement);
+      if (migration === undefined) throw new Error(`unknown statement: ${statement}`);
+      if (migration.kind === "CREATE_TABLE") {
+        if (!tables.has(migration.table)) {
+          tables.set(
+            migration.table,
+            migration.columns.map((name) => ({ name, type: "TEXT", notNull: false, defaultValue: null })),
+          );
+          definitions.set(migration.table, statement.replace("CREATE TABLE IF NOT EXISTS ", "CREATE TABLE ").replace(/;$/, ""));
+        }
+        return;
+      }
+      tables.get(migration.table)?.push(migration.column);
+      const definition = statement.slice(`ALTER TABLE ${migration.table} ADD COLUMN `.length, -1);
+      definitions.set(migration.table, `${definitions.get(migration.table)?.slice(0, -1)}, ${definition})`);
+    },
+    runInTransaction: (work) => work(),
+    tableColumns: (table) => tables.get(table) ?? null,
+    tableSql: (table) => definitions.get(table) ?? null,
+  };
+}
 
 function createInMemoryStore(): LocalMigrationStore & { executedStatements: string[] } {
   const applied = new Set<string>();
   const executedStatements: string[] = [];
+  const schema = createFakeSchema();
 
   return {
     executedStatements,
+    runInTransaction: schema.runInTransaction,
+    tableColumns: schema.tableColumns,
+    tableSql: schema.tableSql,
     ensureMigrationsTable: () => {},
     isApplied: (id) => applied.has(id),
-    execute: (statement) => executedStatements.push(statement),
+    execute: (statement) => {
+      schema.apply(statement);
+      executedStatements.push(statement);
+    },
     markApplied: (id) => applied.add(id),
   };
 }
@@ -57,15 +97,22 @@ describe("local SQLite migration runner", () => {
 function createRowBackedStore(): LocalMigrationStore & { executedStatements: string[] } {
   const recordedRows = new Map<string, { id: string }>();
   const executedStatements: string[] = [];
+  const schema = createFakeSchema();
 
   return {
     executedStatements,
+    runInTransaction: schema.runInTransaction,
+    tableColumns: schema.tableColumns,
+    tableSql: schema.tableSql,
     ensureMigrationsTable: () => {},
     isApplied: (id) => {
       const row = recordedRows.get(id) ?? null; // mirrors db.get()'s real "no row" value
       return isRowPresent(row);
     },
-    execute: (statement) => executedStatements.push(statement),
+    execute: (statement) => {
+      schema.apply(statement);
+      executedStatements.push(statement);
+    },
     markApplied: (id) => {
       recordedRows.set(id, { id });
     },
