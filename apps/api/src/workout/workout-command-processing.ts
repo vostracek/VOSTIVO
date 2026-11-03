@@ -379,6 +379,30 @@ async function applyCompleteSet(
   // other reasons (bad load, or the Finish causal-boundary gate).
   const sessionId = command.workoutSessionId;
 
+  // CORE-FIX-01 (CORE-AUDIT-01 F-01): an already-existing performedSetId must
+  // be THIS command's own set — same performed exercise (hence same session
+  // and owner). Owning the command's session proves nothing about a set id
+  // that already exists elsewhere. Another athlete's set is a foreign-
+  // ownership rejection (no receipt, same generic REJECTED as every other
+  // BOLA case, nothing about the foreign row is revealed); the same athlete's
+  // set under another exercise/session is an ordinary same-owner rejection.
+  // Checked before any write. The upsert below re-asserts the same identity
+  // atomically, so a concurrent insert after this read can still never be
+  // overwritten.
+  const [existingSet] = await tx
+    .select({ performedExerciseId: performedSets.performedExerciseId, ownerUserId: workoutSessions.userId })
+    .from(performedSets)
+    .innerJoin(performedExercises, eq(performedExercises.id, performedSets.performedExerciseId))
+    .innerJoin(workoutSessions, eq(workoutSessions.id, performedExercises.workoutSessionId))
+    .where(eq(performedSets.id, command.performedSetId))
+    .limit(1);
+  if (existingSet !== undefined) {
+    if (existingSet.ownerUserId !== userId) throw new OwnershipUnresolvedRejection();
+    if (existingSet.performedExerciseId !== command.performedExerciseId) {
+      return { outcome: "REJECTED", sessionId, progressionTriggerSessionId: null };
+    }
+  }
+
   const loadValidation = validateExternalWeightLoad(command.actualLoad);
   if (!loadValidation.ok) return { outcome: "REJECTED", sessionId, progressionTriggerSessionId: null }; // WDI-SYNC-007
 
@@ -463,10 +487,26 @@ async function applyCompleteSet(
         updatedAt: sql`now()`,
       },
       // The revision-gated convergence (spec section 17): only apply if
-      // the incoming revision is strictly newer than what's stored.
-      setWhere: sql`${performedSets.revision} < excluded.revision`,
+      // the incoming revision is strictly newer than what's stored — and
+      // (CORE-FIX-01) only ever onto the command's own set: the identity
+      // check above, re-asserted atomically on the conflicting row itself.
+      setWhere: sql`${performedSets.revision} < excluded.revision AND ${performedSets.performedExerciseId} = excluded.performed_exercise_id`,
     })
     .returning({ id: performedSets.id });
+
+  if (upserted.length === 0) {
+    // ON CONFLICT DO UPDATE locks the conflicting row even when its WHERE is
+    // false, so this read sees the row that blocked the update. It is only
+    // ever another set when a concurrent transaction created this id after
+    // the identity check above — roll everything back without a receipt; a
+    // replay is then judged by that check against the committed row.
+    const [conflicting] = await tx
+      .select({ performedExerciseId: performedSets.performedExerciseId })
+      .from(performedSets)
+      .where(eq(performedSets.id, command.performedSetId))
+      .limit(1);
+    if (conflicting?.performedExerciseId !== command.performedExerciseId) throw new OwnershipUnresolvedRejection();
+  }
 
   const outcome = upserted.length > 0 ? "APPLIED" : "STALE";
   return {
