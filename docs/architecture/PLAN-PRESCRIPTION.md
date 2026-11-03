@@ -91,6 +91,17 @@ explicit, but visually secondary in the UI.
   domain model.
 - **Exercise Taxonomy**: `exerciseRef` stays an opaque, unresolved
   pointer, same boundary as WDI.
+- **Plan overview fan-out** (CORE-AUDIT-01 F-04, reviewed read-only and
+  deferred):
+  - `getCurrentPlanOverview` builds a full Workout Preview for every
+    TODAY/PLANNED session of the displayed cycle, only to derive
+    `hasAppliedProgression`. These previews run in parallel and are bounded
+    by the sessions of one cycle.
+  - No latency problem has been measured yet.
+  - The future fix is one aggregated read of APPLIED
+    `progression_applications` for the slots in view. It needs a parity
+    test against the Preview overlay (equipment substitution, effective
+    load) and is not a mechanical change.
 
 ## `RepTargetV1` — the one rep-target representation (resolved, was a reported conflict)
 

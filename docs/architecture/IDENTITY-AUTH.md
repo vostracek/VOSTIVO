@@ -168,6 +168,23 @@ No fabricated fields (`isAdmin`, `isCoach`, `isPro`) exist on this type —
 they would have to be derived from real domain state that doesn't exist
 yet.
 
+Authentication is opt-in per controller (`@UseGuards(AuthGuard)`); there is
+no global guard. This is enforced by a test instead (CORE-AUDIT-01 F-06):
+- `apps/api/src/auth/controller-auth-coverage.test.ts` walks the real
+  `AppModule` import graph and fails for any route handler that `AuthGuard`
+  does not cover.
+- The only allowlisted public controller is `HealthController`
+  (liveness/readiness, no athlete data).
+- A new controller added without the guard therefore fails CI.
+
+Path ids that are database UUIDs are checked with `ParseUUIDPipe`
+(CORE-AUDIT-01 F-05):
+- A malformed id is a 400 and never reaches the database. It used to be an
+  `invalid input syntax for type uuid` error, turned into a 500.
+- Because guards run before pipes, an unauthenticated request is still a
+  401.
+- A well-formed id that is unknown or not owned is still a uniform 404.
+
 ## `GET /api/v1/me`
 
 Proves the full chain end to end. Uses an explicit `MeResponse` DTO
