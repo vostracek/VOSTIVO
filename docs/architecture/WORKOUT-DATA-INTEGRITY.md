@@ -163,7 +163,9 @@ once in `src/plan/plan-runtime.ts`), which calls the unchanged
   command returned to `RETRY` (transport failure, 5xx, auth unavailable)
   or an unexpected engine error (the engine has already returned the
   batch to `RETRY` before rethrowing). `CONFLICT` and `REJECTED` are
-  terminal and are never re-sent.
+  terminal and are never re-sent. A request-level 400/413/422 is not
+  retried on the timer: it is isolated (see "Request-level refusals,
+  BLOCKED and dependency holds" below).
 - **Network regain alone is not enough:** Manual Test #4 (2026-10-04)
   showed a backend outage while the device stayed connected — no
   connectivity event ever fires. The retry timer is what recovers that
@@ -188,6 +190,118 @@ once in `src/plan/plan-runtime.ts`), which calls the unchanged
   after it was added. On an older build the connectivity source is simply
   absent (checked with `requireOptionalNativeModule`); every other
   trigger, including the retry, still works.
+
+### Request-level refusals, BLOCKED and dependency holds (CC-03, D-SYNC-1)
+
+**Why:** the API validates the WHOLE batch before processing any command
+(global `ValidationPipe`, proven by `CC01-BATCH-001`): one invalid command
+used to fail every request with 400, the client returned everything to
+`RETRY`, and oldest-first selection re-sent the same batch forever — no
+newer command ever left the device. Fixed client-side only; no server
+contract, no wire format and no schema migration changed (`sync_outbox.status`
+is unconstrained TEXT).
+
+**Classification** (`workout-sync-api-client.ts`):
+
+| Response | Typed failure | Outbox effect |
+|---|---|---|
+| network error, 5xx, 408, 429 | `TransientSyncFailure` | `RETRY`, timer backoff |
+| 401 (after one refresh) | `SessionInvalidError` (paused) | `RETRY`, no timer |
+| 409 `SYNC_OWNER_MISMATCH` | `RuntimeOwnerMismatchError` (paused) | `RETRY`, no timer |
+| 400 / 413 / 422 | `RequestRejectedSyncResponse` | isolation (below) |
+| other 4xx | unclassified error | `RETRY`, timer backoff (unchanged) |
+
+A 400/413/422 is **never treated as proof that a command is invalid**. It
+says only that the request as a whole was refused before anything was
+processed, so re-sending is free of side effects (receipts make replay
+idempotent anyway).
+
+**Isolation** (`SyncEngine.isolateRequestRejection`): each command of the
+refused batch is sent alone, oldest first.
+- Accepted alone: its acknowledgement is applied as usual.
+- Refused alone: it becomes `BLOCKED`, and every later command that may
+  depend on it is not sent (held, stays `PENDING`/`RETRY`).
+- Any other failure while probing (offline, 5xx, 429, 401, 409,
+  unexpected): stop. Nothing unprobed is classified; everything returns to
+  `RETRY` and the failure is handled as usual.
+- **Every probe refused (two or more):** systemic (for example a
+  client/server version mismatch). Nothing becomes `BLOCKED`, everything
+  stays `RETRY`, and the pass reports `requestRejected`. The coordinator
+  neither loops immediately nor schedules a timer, because no timer can fix
+  this. The next real trigger tries again.
+- A batch of one command refused with 400 is `BLOCKED` directly.
+
+**`BLOCKED`** means refused by the server on its own at request level. It
+is not proven permanently invalid and it is never `REJECTED`. It is out of
+the automatic retry loop, never deleted, and command id, payload and local
+workout data are untouched.
+
+**Re-probe:** once per `SyncEngine`, i.e. once per app launch or owner
+switch. Its first pass releases `BLOCKED` back to `RETRY`
+(`releaseBlockedCommands`) and probes again.
+- At the end of that pass, a released command the server did not
+  acknowledge returns to `BLOCKED`, so it never silently looks resolved.
+- If the server never got to judge it (paused, offline, 5xx, 401…), the
+  release is repeated on a later pass of the same launch.
+- A command refused again stays `BLOCKED` until the next launch. There is
+  no tight retry loop.
+
+**Dependency holds** (`src/workout/outbox-dependency.ts`, the one rule
+shared by the engine and the repository). A command's dependency group is
+its local workout session. `REOPEN_SET_V1` carries no session id, so it is
+resolved through `local_performed_sets`. A command waits behind an
+**earlier** `BLOCKED`/refused command when it may depend on it:
+- **Same known session:** hold.
+- **Candidate of unknown session** (malformed, or an unresolvable REOPEN):
+  hold behind any earlier refusal. It is never assumed independent.
+- **Refused command of unknown session:** it could belong to any session
+  that already existed. Every session not *provably started after it* is
+  held, meaning its START command must be positioned after the refusal.
+  An unknown START position counts as "before".
+
+Held commands are excluded before `LIMIT`, so they never consume the
+selection window and independent sessions keep syncing. Order is
+`created_at`, then `rowid`, so commands issued in the same millisecond keep
+their issue order. A command with no refusal ahead of it is sent normally,
+even if malformed, and the server decides (for example `REJECTED`).
+
+**User-visible unresolved state.**
+- **Source:** `WorkoutRepository.getUnresolvedSyncSummary()` returns
+  `{blocked, waitingOnBlocked, rejected, conflicted}`, and
+  `WorkoutSyncCoordinator.requestRejectedAtLastAttempt` reports the
+  systemic case, which is recorded nowhere in the outbox.
+- **Today shows** a calm, non-blocking line when any of these is non-zero
+  or true: *"Some workout records haven't synced yet. They're saved on this
+  device."* (`src/workout/unresolved-sync-notice.ts`, `app/index.tsx`).
+- **What does not show it:** ordinary pending or offline commands, because
+  they sync on their own.
+- **No action is offered,** because no in-app retry or resolve action
+  exists. The absence of the line is never presented as "all synced".
+- **When it is re-read:**
+  - after every settled sync pass (`onPassSettled`), which covers
+    mutation, launch, foreground resume, network regain and retry;
+  - on every Today reload or focus.
+- **A failed read keeps the last known state.**
+
+**Recovery limitations (known, accepted for V1):**
+- `REJECTED` and `CONFLICT` are terminal: they are **never re-sent or
+  recovered automatically**. The record stays on the device and keeps the
+  Today notice visible. There is no manual resolve UI yet.
+- A `BLOCKED` command is recovered automatically only if a re-probe on a
+  later launch is accepted, for example after a server or app update.
+  Until then it, and everything held behind it, stays unsynced.
+- When a full batch holds a single session, only one probe is possible. A
+  systemic refusal then cannot be told apart from a bad command, and that
+  session's first command becomes `BLOCKED`. This is bounded (one pass per
+  session, no timer), visible and re-probed on the next launch.
+- After a systemic refusal, every real trigger re-probes: about one request
+  per session in the batch plus one.
+- While a re-probe pass is in flight, the released commands are briefly
+  `RETRY`. Today reads after the pass settles.
+- While anything is `BLOCKED`, pending selection reads all pending commands
+  (plus each session's START) without `LIMIT`. This is negligible at real
+  outbox sizes.
+- Native (device) verification of CC-03 is still pending.
 
 ## Planned workout occurrence authority (V1, 2026-10-05)
 

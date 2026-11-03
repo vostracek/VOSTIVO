@@ -47,6 +47,12 @@ class InMemoryOutbox implements OutboxPort {
   markRetry = (id: string) => this.set(id, "RETRY");
   markConflict = (id: string) => this.set(id, "CONFLICT");
   markRejected = (id: string) => this.set(id, "REJECTED");
+  markBlocked = (id: string) => this.set(id, "BLOCKED");
+  releaseBlockedCommands(): Promise<readonly string[]> {
+    const released = [...this.statuses].filter(([, status]) => status === "BLOCKED").map(([id]) => id);
+    for (const id of released) this.statuses.set(id, "RETRY");
+    return Promise.resolve(released);
+  }
 }
 
 /** An API that is down until `restore()`, then applies each command id once. */

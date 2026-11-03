@@ -17,8 +17,10 @@ import type { AuthTokenProvider } from "./auth-token-provider";
  * server contract proven in `workout-sync-batch-validation.cc01-baseline.test.ts`:
  * one invalid command fails the WHOLE batch with 400.
  *
- * The `it` tests describe guarantees that must survive the repair. The
- * `it.fails` tests assert the DESIRED behavior and turn red once it is fixed.
+ * The `it` tests describe guarantees that must survive the repair. The two
+ * D-SYNC-1 tests were `it.fails` until CC-03 repaired the defect (request-
+ * level 400 -> single-command isolation -> BLOCKED, see
+ * `sync-outbox-recovery.test.ts`); they now pass as plain `it`.
  */
 const OWNER = "0190a000-0000-7000-8000-00000000000a";
 const POISON_COMMAND_ID = "0190a000-0000-7000-8000-0000000000ff";
@@ -40,6 +42,12 @@ describe("CC-01 sync HTTP 400 behavior", () => {
       sql`INSERT INTO sync_outbox (command_id, command_type, schema_version, payload_json, status, created_at, updated_at)
           VALUES (${POISON_COMMAND_ID}, 'NOT_A_KNOWN_COMMAND', 1, ${payload}, 'PENDING', ${createdAt}, ${createdAt})`,
     );
+  }
+
+  function outboxContents(): { commandId: string; payload: string }[] {
+    return connection.db
+      .all<{ command_id: string; payload_json: string }>(sql`SELECT command_id, payload_json FROM sync_outbox ORDER BY created_at ASC, rowid ASC`)
+      .map((row) => ({ commandId: row.command_id, payload: row.payload_json }));
   }
 
   function statusOf(commandId: string): string | undefined {
@@ -88,11 +96,15 @@ describe("CC-01 sync HTTP 400 behavior", () => {
   it("CC01-SYNC-002: a 400 never loses data: every command and its payload stay in the outbox", async () => {
     insertPoison("2026-01-01T00:00:00.000Z");
     await repository.startWorkoutSession(PRESCRIPTION);
-    const before = await repository.getPendingCommands(25);
+    const before = outboxContents();
 
-    await expect(engine.syncPendingCommands()).rejects.toThrow("Sync request failed: 400");
+    // CC-03: the 400 is no longer rethrown as an unexpected error — it is
+    // isolated. The guarantee is unchanged: no command, id or payload is
+    // deleted or rewritten, and local workout reality is untouched.
+    await engine.syncPendingCommands();
 
-    expect(await repository.getPendingCommands(25)).toEqual(before);
+    expect(outboxContents()).toEqual(before);
+    expect(statusOf(POISON_COMMAND_ID)).toBe("BLOCKED");
     expect(await repository.getActiveWorkoutSession()).toBeDefined();
   });
 
@@ -105,10 +117,10 @@ describe("CC-01 sync HTTP 400 behavior", () => {
     expect(pending.map((record) => record.commandId)).toEqual([POISON_COMMAND_ID]);
   });
 
-  // CC01-KNOWN-DEFECT D-SYNC-1: the client treats 400 as retryable for the
-  // whole batch. Oldest-first ordering re-selects the same invalid command on
-  // every pass, with no attempt limit, so newer valid commands never leave.
-  it.fails("CC01-KNOWN-DEFECT D-SYNC-1 (desired): one invalid command must not stop a valid newer command from reaching the server", async () => {
+  // D-SYNC-1 (repaired by CC-03): the client used to treat 400 as retryable
+  // for the whole batch; oldest-first ordering re-selected the same invalid
+  // command on every pass, so newer valid commands never left the device.
+  it("CC01-KNOWN-DEFECT D-SYNC-1 (desired): one invalid command must not stop a valid newer command from reaching the server", async () => {
     insertPoison("2026-01-01T00:00:00.000Z");
     const started = await repository.startWorkoutSession(PRESCRIPTION);
     expect(started.status).toBe("STARTED");
@@ -122,7 +134,7 @@ describe("CC-01 sync HTTP 400 behavior", () => {
     expect(statusOf(valid!.commandId)).toBe("SYNCED");
   });
 
-  it.fails("CC01-KNOWN-DEFECT D-SYNC-1 (desired): an invalid command must leave the retry loop", async () => {
+  it("CC01-KNOWN-DEFECT D-SYNC-1 (desired): an invalid command must leave the retry loop", async () => {
     insertPoison("2026-01-01T00:00:00.000Z");
 
     await engine.syncPendingCommands().catch(() => undefined);
@@ -130,5 +142,12 @@ describe("CC-01 sync HTTP 400 behavior", () => {
     expect(statusOf(POISON_COMMAND_ID)).not.toBe("RETRY");
   });
 
-  it.todo("D-SYNC-1 repair: a permanently refused command must be visible to the athlete, never silently dropped");
+  it("D-SYNC-1 repair: a refused command is visible as unresolved sync state, never silently dropped", async () => {
+    insertPoison("2026-01-01T00:00:00.000Z");
+
+    await engine.syncPendingCommands();
+
+    expect(await repository.getUnresolvedSyncSummary()).toEqual({ blocked: 1, waitingOnBlocked: 0, rejected: 0, conflicted: 0 });
+    expect(outboxContents().map((row) => row.commandId)).toContain(POISON_COMMAND_ID);
+  });
 });
