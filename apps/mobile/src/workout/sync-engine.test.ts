@@ -65,6 +65,15 @@ class InMemoryOutbox implements OutboxPort {
     this.statuses.set(commandId, "REJECTED");
     return Promise.resolve();
   }
+  markBlocked(commandId: string): Promise<void> {
+    this.statuses.set(commandId, "BLOCKED");
+    return Promise.resolve();
+  }
+  releaseBlockedCommands(): Promise<readonly string[]> {
+    const released = [...this.statuses].filter(([, status]) => status === "BLOCKED").map(([id]) => id);
+    for (const id of released) this.statuses.set(id, "RETRY");
+    return Promise.resolve(released);
+  }
 }
 
 class WorkingAuthTokenProvider implements AuthTokenProvider {

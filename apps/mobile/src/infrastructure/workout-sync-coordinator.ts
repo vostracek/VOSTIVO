@@ -78,6 +78,8 @@ export class WorkoutSyncCoordinator {
   private retryHandle: unknown;
   private consecutiveFailures = 0;
   private disposed = false;
+  private lastRequestRejected = false;
+  private readonly passListeners = new Set<() => void>();
 
   constructor(
     private readonly sync: () => Promise<SyncPendingCommandsResult>,
@@ -94,6 +96,29 @@ export class WorkoutSyncCoordinator {
     return this.retryHandle !== undefined;
   }
 
+  /**
+   * CC-03: whether the last pass that reached the server was refused at
+   * request level as a whole (`SyncPendingCommandsResult.requestRejected`):
+   * nothing is classified in the outbox for this, so it is only known here.
+   * A pass that did not reach the server (paused, offline) keeps the
+   * previous value — it learned nothing new.
+   */
+  get requestRejectedAtLastAttempt(): boolean {
+    return this.lastRequestRejected;
+  }
+
+  /**
+   * CC-03: `listener` runs after every settled pass (success, failure or
+   * pause), e.g. to re-read unresolved sync state. Returns an unsubscribe.
+   * A throwing listener never affects sync.
+   */
+  onPassSettled(listener: () => void): () => void {
+    this.passListeners.add(listener);
+    return () => {
+      this.passListeners.delete(listener);
+    };
+  }
+
   requestSync(trigger: WorkoutSyncTrigger): void {
     if (this.disposed) return;
     if (this.running) {
@@ -106,6 +131,7 @@ export class WorkoutSyncCoordinator {
 
   dispose(): void {
     this.disposed = true;
+    this.passListeners.clear();
     this.followUpTrigger = undefined;
     this.cancelRetry();
   }
@@ -119,8 +145,12 @@ export class WorkoutSyncCoordinator {
     let paused = false;
     try {
       const result = await this.sync();
+      if (result.attempted > 0 && result.retried === 0) this.lastRequestRejected = result.requestRejected === true;
       retryable = result.retried > 0;
-      moreMayBePending = !retryable && this.batchSize !== undefined && result.attempted >= this.batchSize;
+      // CC-03: a systemic request-level refusal is not progress — another
+      // immediate pass would send the same refused batch again, forever.
+      moreMayBePending =
+        !retryable && result.requestRejected !== true && this.batchSize !== undefined && result.attempted >= this.batchSize;
       if (!retryable && result.attempted > 0) {
         this.logger.debug("workout sync succeeded", {
           trigger,
@@ -151,6 +181,7 @@ export class WorkoutSyncCoordinator {
     }
 
     if (this.disposed) return;
+    this.notifyPassSettled();
     if (paused) {
       this.followUpTrigger = undefined;
       return;
@@ -174,6 +205,16 @@ export class WorkoutSyncCoordinator {
     }
 
     if (retryable) this.scheduleRetry();
+  }
+
+  private notifyPassSettled(): void {
+    for (const listener of [...this.passListeners]) {
+      try {
+        listener();
+      } catch (error: unknown) {
+        this.logger.debug("workout sync pass listener failed", { error: error instanceof Error ? error.name : "unknown" });
+      }
+    }
   }
 
   private scheduleRetry(): void {

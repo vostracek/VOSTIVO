@@ -10,6 +10,7 @@ import type {
   WorkoutRepository,
 } from "./workout-repository";
 import type { SyncEngine, SyncPendingCommandsResult } from "./sync-engine";
+import type { UnresolvedSyncSummary } from "./outbox-port";
 
 export interface SetDraftUpdate {
   readonly workoutSessionId: string;
@@ -89,5 +90,10 @@ export class WorkoutApplicationService {
 
   syncPendingWorkoutCommands(): Promise<SyncPendingCommandsResult> {
     return this.syncEngine.syncPendingCommands();
+  }
+
+  /** CC-03: unresolved sync state (BLOCKED / held / REJECTED / CONFLICT) for Today's notice. */
+  getUnresolvedSyncSummary(): Promise<UnresolvedSyncSummary> {
+    return this.repository.getUnresolvedSyncSummary();
   }
 }
