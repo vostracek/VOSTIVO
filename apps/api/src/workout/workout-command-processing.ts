@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { PgBoss } from "pg-boss";
 import {
   performedExercises,
@@ -376,16 +376,104 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * CORE-FIX-11 (F-11): which performed exercise a COMPLETE_SET_V1 writes to.
+ * Runs under the session row lock, after ownership, the Finish gate and the
+ * snapshot binding have passed, and before any write.
+ *
+ * A planned slot (non-null `prescriptionExerciseId`) of a session has ONE
+ * canonical performed exercise — its earliest row (created_at, id), so a
+ * session a pre-fix client already fragmented keeps growing on one row and
+ * historical rows are never moved or rewritten. The command's
+ * `performedExerciseId` is the client's proposal: honored when it creates
+ * the slot's first row, otherwise mapped onto the canonical row (a pre-fix
+ * client can propose a second id for an occupied slot from a stale render).
+ * Mapping is unambiguous: same owned session, same planned slot, same
+ * exerciseRef — never by name/exerciseRef alone, never across slots or
+ * sessions. A proposed id that already belongs to another slot/session, a
+ * canonical row with a different exerciseRef, or a SECOND set id for an
+ * occupied planned set slot (a double tap) is REJECTED (same owner,
+ * receipt) with no write. An EXISTING set is always written in place under
+ * the exercise it already belongs to (CORE-FIX-01: it must be this
+ * command's own set — same exercise, or the same planned slot of this
+ * session). Unplanned exercises (null slot) keep the previous behavior.
+ */
+async function resolveCompleteSetIdentity(
+  tx: Database,
+  command: CompleteSetCommandV1,
+  existingSetExerciseId: string | undefined,
+): Promise<{ readonly performedExerciseId: string } | "REJECTED"> {
+  const [proposed] = await tx
+    .select({ workoutSessionId: performedExercises.workoutSessionId, prescriptionExerciseId: performedExercises.prescriptionExerciseId })
+    .from(performedExercises)
+    .where(eq(performedExercises.id, command.performedExerciseId))
+    .limit(1);
+  if (proposed !== undefined && (proposed.workoutSessionId !== command.workoutSessionId || proposed.prescriptionExerciseId !== command.prescriptionExerciseId)) {
+    return "REJECTED";
+  }
+
+  const slotRows =
+    command.prescriptionExerciseId === null
+      ? []
+      : await tx
+          .select({ id: performedExercises.id, exerciseRef: performedExercises.exerciseRef })
+          .from(performedExercises)
+          .where(and(eq(performedExercises.workoutSessionId, command.workoutSessionId), eq(performedExercises.prescriptionExerciseId, command.prescriptionExerciseId)))
+          .orderBy(asc(performedExercises.createdAt), asc(performedExercises.id));
+
+  if (existingSetExerciseId !== undefined) {
+    const ownExercise = existingSetExerciseId === command.performedExerciseId;
+    const sameSlot = slotRows.some((row) => row.id === existingSetExerciseId);
+    return ownExercise || sameSlot ? { performedExerciseId: existingSetExerciseId } : "REJECTED";
+  }
+
+  const [canonical] = slotRows;
+  if (canonical !== undefined) {
+    if (canonical.exerciseRef !== command.exerciseRef) return "REJECTED";
+    if (command.prescriptionSetId !== null) {
+      const [occupied] = await tx
+        .select({ id: performedSets.id })
+        .from(performedSets)
+        .where(and(inArray(performedSets.performedExerciseId, slotRows.map((row) => row.id)), eq(performedSets.prescriptionSetId, command.prescriptionSetId)))
+        .limit(1);
+      if (occupied !== undefined) return "REJECTED";
+    }
+    return { performedExerciseId: canonical.id };
+  }
+
+  if (proposed !== undefined) return { performedExerciseId: command.performedExerciseId }; // unplanned: the caller's own existing row
+  const inserted = await tx
+    .insert(performedExercises)
+    .values({
+      id: command.performedExerciseId,
+      workoutSessionId: command.workoutSessionId,
+      prescriptionExerciseId: command.prescriptionExerciseId,
+      exerciseRef: command.exerciseRef,
+      displayName: command.exerciseDisplayName,
+      orderIndex: command.exerciseOrder,
+    })
+    .onConflictDoNothing({ target: performedExercises.id })
+    .returning({ id: performedExercises.id });
+  // Lost a race against another session creating this very id: never ours.
+  return inserted.length > 0 ? { performedExerciseId: command.performedExerciseId } : "REJECTED";
+}
+
 async function applyCompleteSet(
   tx: Database,
   userId: string,
   command: CompleteSetCommandV1,
 ): Promise<SetMutationResult> {
+  // CORE-FIX-11: the session row lock serializes every COMPLETE_SET of one
+  // session, so the planned-slot identity resolved below (read -> insert)
+  // can never race into two performed exercises for one slot across
+  // concurrent requests/instances. Lock order is session -> performed rows;
+  // no path locks a performed row and then its session.
   const [session] = await tx
     .select({ userId: workoutSessions.userId, status: workoutSessions.status, finishSeq: workoutSessions.finishSeq, prescriptionSnapshot: workoutSessions.prescriptionSnapshot })
     .from(workoutSessions)
     .where(eq(workoutSessions.id, command.workoutSessionId))
-    .limit(1);
+    .limit(1)
+    .for("update");
   if (session === undefined || session.userId !== userId) throw new OwnershipUnresolvedRejection(); // BOLA (spec 25)
 
   // From here on, ownership is confirmed — this command's sessionSeq is a
@@ -410,12 +498,7 @@ async function applyCompleteSet(
     .innerJoin(workoutSessions, eq(workoutSessions.id, performedExercises.workoutSessionId))
     .where(eq(performedSets.id, command.performedSetId))
     .limit(1);
-  if (existingSet !== undefined) {
-    if (existingSet.ownerUserId !== userId) throw new OwnershipUnresolvedRejection();
-    if (existingSet.performedExerciseId !== command.performedExerciseId) {
-      return { outcome: "REJECTED", sessionId, progressionTriggerSessionId: null };
-    }
-  }
+  if (existingSet !== undefined && existingSet.ownerUserId !== userId) throw new OwnershipUnresolvedRejection();
 
   const loadValidation = validateExternalWeightLoad(command.actualLoad);
   if (!loadValidation.ok) return { outcome: "REJECTED", sessionId, progressionTriggerSessionId: null }; // WDI-SYNC-007
@@ -436,40 +519,16 @@ async function applyCompleteSet(
     return { outcome: "REJECTED", sessionId, progressionTriggerSessionId: null };
   }
 
-  const exerciseInsert = await tx
-    .insert(performedExercises)
-    .values({
-      id: command.performedExerciseId,
-      workoutSessionId: command.workoutSessionId,
-      prescriptionExerciseId: command.prescriptionExerciseId,
-      exerciseRef: command.exerciseRef,
-      displayName: command.exerciseDisplayName,
-      orderIndex: command.exerciseOrder,
-    })
-    .onConflictDoNothing({ target: performedExercises.id })
-    .returning({ id: performedExercises.id });
-
-  if (exerciseInsert.length === 0) {
-    const [existingExercise] = await tx
-      .select({ workoutSessionId: performedExercises.workoutSessionId, prescriptionExerciseId: performedExercises.prescriptionExerciseId })
-      .from(performedExercises)
-      .where(eq(performedExercises.id, command.performedExerciseId))
-      .limit(1);
-    if (
-      existingExercise === undefined ||
-      existingExercise.workoutSessionId !== command.workoutSessionId ||
-      existingExercise.prescriptionExerciseId !== command.prescriptionExerciseId
-    ) {
-      return { outcome: "REJECTED", sessionId, progressionTriggerSessionId: null };
-    }
-  }
+  const identity = await resolveCompleteSetIdentity(tx, command, existingSet?.performedExerciseId);
+  if (identity === "REJECTED") return { outcome: "REJECTED", sessionId, progressionTriggerSessionId: null };
+  const targetExerciseId = identity.performedExerciseId;
 
   const load = loadValidation.value;
   const upserted = await tx
     .insert(performedSets)
     .values({
       id: command.performedSetId,
-      performedExerciseId: command.performedExerciseId,
+      performedExerciseId: targetExerciseId,
       prescriptionSetId: command.prescriptionSetId,
       orderIndex: command.setOrder,
       actualReps: command.actualReps,
@@ -519,7 +578,7 @@ async function applyCompleteSet(
       .from(performedSets)
       .where(eq(performedSets.id, command.performedSetId))
       .limit(1);
-    if (conflicting?.performedExerciseId !== command.performedExerciseId) throw new OwnershipUnresolvedRejection();
+    if (conflicting?.performedExerciseId !== targetExerciseId) throw new OwnershipUnresolvedRejection();
   }
 
   const outcome = upserted.length > 0 ? "APPLIED" : "STALE";

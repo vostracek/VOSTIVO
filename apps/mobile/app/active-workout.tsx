@@ -28,6 +28,7 @@ import { computeRemainingSeconds, isRestTimerFinished, resolveRestDuration } fro
 import { formatLoad, formatPreviousSet, formatRepTarget } from "../src/workout/format-target";
 import { previousPerformanceRefs, previousSetsFor, resolvePrefill } from "../src/workout/active-workout-presentation";
 import { loadToAmountMilli, parseLoadInput, parseRepsInput } from "../src/workout/numeric-input";
+import { createInFlightGuard, setActionKey } from "../src/workout/in-flight-guard";
 import { colors, radius, spacing, touchTarget, typography } from "../src/design/tokens";
 
 /**
@@ -73,6 +74,8 @@ export default function ActiveWorkoutScreen(): React.JSX.Element {
   const [state, setState] = useState<ScreenState>({ status: "loading" });
   const [previousByExerciseRef, setPreviousByExerciseRef] = useState<PreviousByExerciseRef>(new Map());
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
+  // CORE-FIX-11: one in-flight set action per planned set slot (see in-flight-guard.ts).
+  const setActionGuard = useRef(createInFlightGuard()).current;
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
 
 
@@ -256,63 +259,72 @@ export default function ActiveWorkoutScreen(): React.JSX.Element {
               performedExercise={session.exercises.find((e) => e.prescriptionExerciseId === plannedExercise.prescriptionExerciseId)}
               drafts={session.drafts}
               previousSets={previousSetsFor(plannedExercise, previousByExerciseRef)}
-              onSetCompleted={async (input) => {
-                const restSeconds = resolveRestDuration(input.plannedSet);
-                const outcome = await service.completeSet(
-                  {
-                    workoutSessionId: session.id,
-                    performedExerciseId: input.performedExerciseId,
-                    performedSetId: input.existingPerformedSetId,
-                    prescriptionExerciseId: plannedExercise.prescriptionExerciseId,
-                    exerciseRef: plannedExercise.exerciseRef,
-                    exerciseDisplayName: plannedExercise.displayName,
-                    exerciseOrder: plannedExercise.order,
-                    prescriptionSetId: input.plannedSet.prescriptionSetId,
-                    setOrder: input.plannedSet.order,
-                    actualReps: input.actualReps,
-                    actualLoad: input.actualLoad,
-                    setType: input.plannedSet.setType,
-                  },
-                  restSeconds,
-                );
-                if (outcome.status === "SESSION_ALREADY_COMPLETED") {
-                  // The local terminal invariant closed this attempt —
-                  // just reflect real local state (the screen will show
-                  // "no-session" once this session no longer resolves as
-                  // active), never pretend the set was logged.
-                  await loadSession();
-                  return;
-                }
-                void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                syncCoordinator.requestSync("mutation");
-                const refreshed = await loadSession();
-
-                // Auto-advance (spec section 24): once every set of the
-                // current exercise is complete, move focus to the next
-                // exercise — never forced, the athlete can still tap any tab.
-                if (refreshed !== undefined) {
-                  const exercise = refreshed.prescription.exercises[currentExerciseIndex];
-                  const performed = refreshed.exercises.find((e) => e.prescriptionExerciseId === exercise?.prescriptionExerciseId);
-                  const allComplete =
-                    exercise !== undefined &&
-                    exercise.sets.every((set) =>
-                      performed?.sets.some((p) => p.prescriptionSetId === set.prescriptionSetId && p.completionState === "COMPLETED"),
+              onSetCompleted={(input) =>
+                setActionGuard
+                  .run(setActionKey(plannedExercise.prescriptionExerciseId, input.plannedSet.prescriptionSetId), async () => {
+                    const restSeconds = resolveRestDuration(input.plannedSet);
+                    const outcome = await service.completeSet(
+                      {
+                        workoutSessionId: session.id,
+                        performedExerciseId: input.performedExerciseId,
+                        performedSetId: input.existingPerformedSetId,
+                        prescriptionExerciseId: plannedExercise.prescriptionExerciseId,
+                        exerciseRef: plannedExercise.exerciseRef,
+                        exerciseDisplayName: plannedExercise.displayName,
+                        exerciseOrder: plannedExercise.order,
+                        prescriptionSetId: input.plannedSet.prescriptionSetId,
+                        setOrder: input.plannedSet.order,
+                        actualReps: input.actualReps,
+                        actualLoad: input.actualLoad,
+                        setType: input.plannedSet.setType,
+                      },
+                      restSeconds,
                     );
-                  if (allComplete && currentExerciseIndex < refreshed.prescription.exercises.length - 1) {
-                    setCurrentExerciseIndex(currentExerciseIndex + 1);
-                  }
-                }
-              }}
-              onSetReopened={async (performedSetId) => {
-                const outcome = await service.reopenSet(performedSetId);
-                if (outcome.status === "SESSION_ALREADY_COMPLETED") {
-                  await loadSession();
-                  return;
-                }
-                void Haptics.selectionAsync().catch(() => {});
-                syncCoordinator.requestSync("mutation");
-                await loadSession();
-              }}
+                    if (outcome.status === "SESSION_ALREADY_COMPLETED" || outcome.status === "ALREADY_COMPLETED") {
+                      // The local terminal invariant closed this attempt, or an
+                      // earlier tap already logged this set (CORE-FIX-11) — just
+                      // reflect real local state (the screen will show
+                      // "no-session" once this session no longer resolves as
+                      // active), never pretend a new set was logged.
+                      await loadSession();
+                      return;
+                    }
+                    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                    syncCoordinator.requestSync("mutation");
+                    const refreshed = await loadSession();
+
+                    // Auto-advance (spec section 24): once every set of the
+                    // current exercise is complete, move focus to the next
+                    // exercise — never forced, the athlete can still tap any tab.
+                    if (refreshed !== undefined) {
+                      const exercise = refreshed.prescription.exercises[currentExerciseIndex];
+                      const performed = refreshed.exercises.find((e) => e.prescriptionExerciseId === exercise?.prescriptionExerciseId);
+                      const allComplete =
+                        exercise !== undefined &&
+                        exercise.sets.every((set) =>
+                          performed?.sets.some((p) => p.prescriptionSetId === set.prescriptionSetId && p.completionState === "COMPLETED"),
+                        );
+                      if (allComplete && currentExerciseIndex < refreshed.prescription.exercises.length - 1) {
+                        setCurrentExerciseIndex(currentExerciseIndex + 1);
+                      }
+                    }
+                  })
+                  .then(() => undefined)
+              }
+              onSetReopened={(performedSetId, prescriptionSetId) =>
+                setActionGuard
+                  .run(setActionKey(plannedExercise.prescriptionExerciseId, prescriptionSetId), async () => {
+                    const outcome = await service.reopenSet(performedSetId);
+                    if (outcome.status === "SESSION_ALREADY_COMPLETED") {
+                      await loadSession();
+                      return;
+                    }
+                    void Haptics.selectionAsync().catch(() => {});
+                    syncCoordinator.requestSync("mutation");
+                    await loadSession();
+                  })
+                  .then(() => undefined)
+              }
               onDraftChanged={async (draft) => {
                 await service.saveSetDraft({
                   workoutSessionId: session.id,
@@ -553,7 +565,7 @@ function ExerciseCard({
   drafts: ActiveWorkoutSession["drafts"];
   previousSets: readonly PreviousSetPerformance[] | undefined;
   onSetCompleted: (input: CompletedSetInput) => Promise<void>;
-  onSetReopened: (performedSetId: string) => Promise<void>;
+  onSetReopened: (performedSetId: string, prescriptionSetId: string) => Promise<void>;
   onDraftChanged: (draft: DraftChange) => Promise<void>;
 }): React.JSX.Element {
   const isSetComplete = (plannedSet: PrescribedSetV1): boolean =>
@@ -616,7 +628,7 @@ function ExerciseCard({
                       actualLoad,
                     })
                   }
-                  onReopen={() => (performedSet !== undefined ? onSetReopened(performedSet.id) : Promise.resolve())}
+                  onReopen={() => (performedSet !== undefined ? onSetReopened(performedSet.id, plannedSet.prescriptionSetId) : Promise.resolve())}
                   onDraftChanged={(draftReps, draftLoad) => onDraftChanged({ prescriptionSetId: plannedSet.prescriptionSetId, draftReps, draftLoad })}
                 />
               </View>

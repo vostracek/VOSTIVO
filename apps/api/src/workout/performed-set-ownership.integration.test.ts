@@ -301,12 +301,15 @@ describe("CORE-FIX-01 — performed set ownership on COMPLETE_SET_V1 (real Postg
   });
 
   it("OWN-011: concurrent race on a brand-new set id — whoever creates the row owns it; the other side never writes into it", async () => {
-    const a = await athleteWithSet();
-    const b = await athleteWithSet();
     for (let round = 0; round < 20; round += 1) {
+      // Fresh athletes each round: both sides target a FREE planned set slot
+      // of their own session (CORE-FIX-11 refuses a second set for an
+      // occupied planned set slot), so the only contested thing is the id.
+      const a = await athleteWithSet();
+      const b = await athleteWithSet();
       const contested = createEntityId();
       const fromA = completeCommand(a.sessionId, { performedSetId: contested, prescriptionSetId: "presc-set-2", setOrder: 1, performedExerciseId: a.set.performedExerciseId, actualReps: 7, sessionSeq: 100 + round });
-      const fromB = completeCommand(b.sessionId, { ...HOSTILE, performedSetId: contested, sessionSeq: 100 + round });
+      const fromB = completeCommand(b.sessionId, { ...HOSTILE, performedSetId: contested, prescriptionSetId: "presc-set-2", setOrder: 1, performedExerciseId: b.set.performedExerciseId, sessionSeq: 100 + round });
       const [ackA, ackB] = await Promise.all([apply(a.userId, fromA), apply(b.userId, fromB)]);
 
       // Exactly one side created the set; the other was refused.
