@@ -405,6 +405,74 @@ even if malformed, and the server decides (for example `REJECTED`).
   outbox sizes.
 - Native (device) verification of CC-03 is still pending.
 
+## Performed exercise identity (CORE-FIX-11, F-11)
+
+**Invariant.** Within one workout session, a planned prescription exercise
+slot (non-null `prescriptionExerciseId`) has exactly ONE canonical
+performed exercise, and a planned set slot (non-null `prescriptionSetId`)
+holds at most ONE performed set — corrected in place (reopen -> recomplete,
+revision-gated), never duplicated. Identity is session + slot, never the
+exercise name or `exerciseRef`: the same `exerciseRef` in two slots stays
+two performed exercises, and a substituted slot keeps its planned slot
+identity. Unplanned exercises (null slot) keep the previous caller-driven
+behavior (several are allowed).
+
+**Root cause fixed.** Active Workout passed the `performedExerciseId` /
+`performedSetId` it last rendered; a fast second tap (another set, or the
+same set) before the post-commit refresh arrived without them, and
+`completeSet()` then allocated a second local performed exercise (and a
+second set for the same slot). The API accepted the shape, so history,
+Progress and progression evidence fragmented (identical 4x12 top-of-range
+work produced no `INCREASE_LOAD` when split across two rows).
+
+**Mobile (`WorkoutRepository.completeSet`).** Inside the existing
+synchronous SQLite transaction (no await inside, so overlapping calls never
+interleave): the slot's canonical performed exercise is resolved from the
+session + slot (earliest row, so a pre-fix fragmented local session keeps
+growing on one row); a caller id from another slot/session throws; a
+planned set slot that is already COMPLETED without an explicit set id
+returns `ALREADY_COMPLETED` (no write, no `sessionSeq`, no outbox command,
+no rest-timer restart); a REOPENED one is recompleted in place. A set's
+commands always name the exercise it already belongs to. Persisted outbox
+payloads are never rewritten. Active Workout additionally holds a
+synchronous per-set-slot in-flight guard (`src/workout/in-flight-guard.ts`)
+over LOG SET / ✓ / reopen — other sets stay responsive, the key is
+released on success, typed outcome or error.
+
+**Server (`applyCompleteSet`).** The session row is locked `FOR UPDATE`
+(lock order session -> performed rows), so concurrent deliveries for one
+session serialize. A pre-fix client's second `performedExerciseId` for an
+occupied slot is mapped onto the canonical (earliest) row — same owned
+session, same slot, same `exerciseRef`; anything else (an id belonging to
+another slot/session, a canonical row with a different `exerciseRef`) is
+REJECTED. A second set id for an occupied planned set slot (a double tap)
+is REJECTED (same owner, receipt, no write; replays answer REJECTED from
+the receipt). An existing set is always written in place under its own
+exercise (CORE-FIX-01 unchanged: same exercise, or the same planned slot of
+this session). No wire-contract change: receipts, set ids, revisions and
+sessionSeq semantics are untouched.
+
+**Historical data (limitation, no migration).** Rows a pre-fix build
+already persisted are not merged or rewritten: an already-fragmented
+session still shows its rows separately in Progress and in progression
+evidence. New commands for such a session converge on its earliest row and
+cannot add a second set to an occupied slot.
+
+**Future hardening (needs its own approved migration plan).** Read-only
+duplicate detection, then a data repair, then partial unique indexes
+`performed_exercises (workout_session_id, prescription_exercise_id) WHERE
+prescription_exercise_id IS NOT NULL` and `performed_sets
+(performed_exercise_id, prescription_set_id) WHERE prescription_set_id IS
+NOT NULL` (the first also indexes the slot lookup — today a sequential
+scan, ~7 ms at 200k performed exercises), and re-evaluation of affected
+completed sessions. Local SQLite equivalent via the atomic local migration
+runner (CC-02).
+
+Tests: `apps/mobile/src/workout/performed-exercise-identity.f11.test.ts`
+(F11-M01..M15, real file SQLite), `apps/mobile/src/workout/in-flight-guard.test.ts`,
+`apps/api/src/workout/performed-exercise-identity.integration.test.ts`
+(F11-S01..S09, real HTTP + Postgres, incl. a 20-round concurrency race).
+
 ## Planned workout occurrence authority (V1, 2026-10-05)
 
 ```text
