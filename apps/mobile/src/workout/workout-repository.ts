@@ -36,7 +36,14 @@ export type LocalDatabaseProvider = () => Promise<Db>;
 
 export interface CompleteSetInput {
   readonly workoutSessionId: string;
-  /** Omit to create a new performed exercise; pass back a prior result's id to add another set to the same exercise. */
+  /**
+   * The id the caller last rendered, if any. For a planned slot (non-null
+   * `prescriptionExerciseId`) the repository resolves the slot's one
+   * canonical performed exercise itself (CORE-FIX-11) — omitting this never
+   * creates a second one. For an unplanned exercise (null slot): omit to
+   * create a new performed exercise, pass a prior result's id to add another
+   * set to it.
+   */
   readonly performedExerciseId?: string;
   /**
    * Omit for a genuinely new set. Pass an existing `PerformedSet.id` to
@@ -102,6 +109,14 @@ export interface FinishWorkoutSessionResult {
  */
 export type CompleteSetOutcome =
   | { readonly status: "COMPLETED"; readonly result: CompleteSetResult }
+  /**
+   * CORE-FIX-11: the planned set slot is already COMPLETED and the caller
+   * gave no explicit set identity (a repeated tap from a stale render) —
+   * nothing was written, no sessionSeq allocated, no outbox command. The
+   * result names the set that already represents the slot, unchanged. A
+   * deliberate correction goes through reopen -> recomplete with that id.
+   */
+  | { readonly status: "ALREADY_COMPLETED"; readonly result: CompleteSetResult }
   | { readonly status: "SESSION_ALREADY_COMPLETED" };
 
 export type ReopenSetOutcome =
@@ -259,11 +274,14 @@ export class WorkoutRepository implements OutboxPort {
     }
 
     const db = await this.openDatabase();
-    const performedExerciseId = input.performedExerciseId ?? createEntityId<"PerformedExercise">();
     const nowIso = new Date().toISOString();
 
     let outcome: CompleteSetOutcome | undefined;
 
+    // The transaction callback is synchronous (no await inside), so two
+    // overlapping completeSet() calls can never interleave between the
+    // identity reads below and their writes — the second one always sees
+    // the first one's committed rows (CORE-FIX-11).
     db.transaction((tx) => {
       // Local terminal invariant (spec section 5): checked and enforced
       // atomically, inside this same transaction — never left to the UI
@@ -278,28 +296,58 @@ export class WorkoutRepository implements OutboxPort {
         return;
       }
 
-      const sessionSeq = sessionRow.last_issued_session_seq + 1;
-      tx.run(
-        sql`UPDATE local_workout_sessions SET last_issued_session_seq = ${sessionSeq}, updated_at = ${nowIso} WHERE id = ${input.workoutSessionId}`,
-      );
+      // CORE-FIX-11 (F-11): one planned prescription exercise slot of a
+      // session has exactly ONE performed exercise. The caller's
+      // `performedExerciseId` is only the id it last rendered — a second tap
+      // before the post-commit refresh arrives without it — so for a planned
+      // slot the identity is resolved here, from the session + slot, never
+      // from the caller alone. Unplanned exercises (null slot) have no slot
+      // identity and keep the caller-driven behavior.
+      const slotIdentity = resolvePerformedExerciseIdentity(tx, input);
+      let performedExerciseId = slotIdentity.performedExerciseId;
 
       // Recompleting an existing (typically just-reopened) set updates
       // that same row with a monotonically incremented revision (spec
       // section 35) — never a second row for the same planned set, which
       // would leave the original row as the one future reads find (spec
       // section 17's out-of-order convergence guarantee, applied locally
-      // too).
+      // too). A planned set slot that is already represented is found here
+      // even when the caller did not pass its id (stale render): a COMPLETED
+      // one makes this call a no-op (ALREADY_COMPLETED — no write, no
+      // sessionSeq, no outbox command); a REOPENED one is recompleted in place.
+      const existingSetId =
+        input.performedSetId ?? findPlannedSetInSlot(tx, input)?.id;
+      let existingSet: { revision: number; completion_state: string; performed_exercise_id: string } | undefined;
+      if (existingSetId !== undefined) {
+        const row = tx.get<{ revision: number; completion_state: string; performed_exercise_id: string }>(
+          sql`SELECT revision, completion_state, performed_exercise_id FROM local_performed_sets WHERE id = ${existingSetId}`,
+        );
+        if (!isRowPresent(row)) {
+          throw new Error(`No local performed set found for id ${existingSetId}`);
+        }
+        existingSet = row;
+        // A set keeps the exercise it was logged under (a pre-fix local
+        // fragment included) — its commands must name that same exercise.
+        performedExerciseId = row.performed_exercise_id;
+        if (input.performedSetId === undefined && row.completion_state === "COMPLETED") {
+          outcome = {
+            status: "ALREADY_COMPLETED",
+            result: { performedExerciseId, performedSetId: existingSetId, revision: row.revision },
+          };
+          return;
+        }
+      }
+
+      const sessionSeq = sessionRow.last_issued_session_seq + 1;
+      tx.run(
+        sql`UPDATE local_workout_sessions SET last_issued_session_seq = ${sessionSeq}, updated_at = ${nowIso} WHERE id = ${input.workoutSessionId}`,
+      );
+
       let performedSetId: string;
       let revision: number;
-      if (input.performedSetId !== undefined) {
-        const current = tx.get<{ revision: number }>(
-          sql`SELECT revision FROM local_performed_sets WHERE id = ${input.performedSetId}`,
-        );
-        if (!isRowPresent(current)) {
-          throw new Error(`No local performed set found for id ${input.performedSetId}`);
-        }
-        performedSetId = input.performedSetId;
-        revision = current.revision + 1;
+      if (existingSetId !== undefined && existingSet !== undefined) {
+        performedSetId = existingSetId;
+        revision = existingSet.revision + 1;
       } else {
         performedSetId = createEntityId<"PerformedSet">();
         revision = 1; // first completion of a newly-created set
@@ -327,14 +375,14 @@ export class WorkoutRepository implements OutboxPort {
         sessionSeq,
       };
 
-      if (input.performedExerciseId === undefined) {
+      if (slotIdentity.isNew) {
         tx.run(
           sql`INSERT INTO local_performed_exercises (id, workout_session_id, prescription_exercise_id, exercise_ref, display_name, order_index, created_at, updated_at)
               VALUES (${performedExerciseId}, ${input.workoutSessionId}, ${input.prescriptionExerciseId}, ${exerciseRef}, ${input.exerciseDisplayName}, ${input.exerciseOrder}, ${nowIso}, ${nowIso})`,
         );
       }
 
-      if (input.performedSetId !== undefined) {
+      if (existingSet !== undefined) {
         tx.run(
           sql`UPDATE local_performed_sets
               SET actual_reps = ${input.actualReps}, load_kind = ${load.kind}, load_amount_milli = ${load.amountMilli},
@@ -767,6 +815,59 @@ function readHoldablePendingCommands(db: Db): { readonly record: OutboxCommandRe
     record,
     held: mustWaitBehindRefused(position, blocked, (sessionId) => startPositions.get(sessionId)),
   }));
+}
+
+/**
+ * CORE-FIX-11: the ONE local performed exercise of a planned prescription
+ * slot (session + non-null `prescriptionExerciseId`). The earliest row wins
+ * deterministically, so a session a pre-fix build already fragmented keeps
+ * growing on a single row. A caller-provided id that belongs to ANOTHER slot
+ * or session is a programming error and fails loudly (never a silent fork or
+ * merge); a caller-provided id that does not exist yet is honored only when
+ * the slot has no performed exercise. Unplanned exercises (null slot) keep
+ * the existing caller-driven identity.
+ */
+function resolvePerformedExerciseIdentity(
+  tx: Db,
+  input: CompleteSetInput,
+): { readonly performedExerciseId: string; readonly isNew: boolean } {
+  if (input.performedExerciseId !== undefined) {
+    const provided = tx.get<{ workout_session_id: string; prescription_exercise_id: string | null }>(
+      sql`SELECT workout_session_id, prescription_exercise_id FROM local_performed_exercises WHERE id = ${input.performedExerciseId}`,
+    );
+    if (isRowPresent(provided)) {
+      if (provided.workout_session_id !== input.workoutSessionId || provided.prescription_exercise_id !== input.prescriptionExerciseId) {
+        throw new Error(`Performed exercise ${input.performedExerciseId} does not belong to this exercise slot`);
+      }
+      if (input.prescriptionExerciseId === null) return { performedExerciseId: input.performedExerciseId, isNew: false };
+    }
+  }
+  if (input.prescriptionExerciseId === null) {
+    return input.performedExerciseId !== undefined
+      ? { performedExerciseId: input.performedExerciseId, isNew: false }
+      : { performedExerciseId: createEntityId<"PerformedExercise">(), isNew: true };
+  }
+  const canonical = tx.get<{ id: string }>(
+    sql`SELECT id FROM local_performed_exercises
+        WHERE workout_session_id = ${input.workoutSessionId} AND prescription_exercise_id = ${input.prescriptionExerciseId}
+        ORDER BY created_at ASC, rowid ASC LIMIT 1`,
+  );
+  if (isRowPresent(canonical)) return { performedExerciseId: canonical.id, isNew: false };
+  return { performedExerciseId: input.performedExerciseId ?? createEntityId<"PerformedExercise">(), isNew: true };
+}
+
+/** CORE-FIX-11: the set already representing this planned set slot, across every row of the slot (pre-fix fragments included). */
+function findPlannedSetInSlot(tx: Db, input: CompleteSetInput): { readonly id: string } | undefined {
+  if (input.prescriptionExerciseId === null || input.prescriptionSetId === null) return undefined;
+  const row = tx.get<{ id: string }>(
+    sql`SELECT s.id FROM local_performed_sets s
+        JOIN local_performed_exercises e ON e.id = s.performed_exercise_id
+        WHERE e.workout_session_id = ${input.workoutSessionId}
+          AND e.prescription_exercise_id = ${input.prescriptionExerciseId}
+          AND s.prescription_set_id = ${input.prescriptionSetId}
+        ORDER BY s.created_at ASC, s.rowid ASC LIMIT 1`,
+  );
+  return isRowPresent(row) ? row : undefined;
 }
 
 function insertOutboxCommand(tx: Db, command: WorkoutCommandV1, nowIso: string): void {
