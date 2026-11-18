@@ -29,6 +29,7 @@ import { formatLoad, formatPreviousSet, formatRepTarget } from "../src/workout/f
 import { previousPerformanceRefs, previousSetsFor, resolvePrefill } from "../src/workout/active-workout-presentation";
 import { loadToAmountMilli, parseLoadInput, parseRepsInput } from "../src/workout/numeric-input";
 import { createFinishGuard } from "../src/workout/finish-guard";
+import { createDraftDebouncer, upsertSetDraft, type DraftDebouncer } from "../src/workout/set-draft";
 import { createInFlightGuard, setActionKey } from "../src/workout/in-flight-guard";
 import { colors, radius, spacing, touchTarget, typography } from "../src/design/tokens";
 
@@ -330,13 +331,19 @@ export default function ActiveWorkoutScreen(): React.JSX.Element {
                   .then(() => undefined)
               }
               onDraftChanged={async (draft) => {
-                await service.saveSetDraft({
-                  workoutSessionId: session.id,
+                const setDraft = {
                   prescriptionExerciseId: plannedExercise.prescriptionExerciseId,
                   prescriptionSetId: draft.prescriptionSetId,
                   draftReps: draft.draftReps,
                   draftLoad: draft.draftLoad,
-                });
+                };
+                // D2: keep the in-memory snapshot in step with SQLite, so a remounted row (exercise switch) restores this draft.
+                setState((current) =>
+                  current.status === "active" && current.session.id === session.id
+                    ? { ...current, session: { ...current.session, drafts: upsertSetDraft(current.session.drafts, setDraft) } }
+                    : current,
+                );
+                await service.saveSetDraft({ workoutSessionId: session.id, ...setDraft });
               }}
             />
           ) : null}
@@ -688,13 +695,7 @@ function SetRow({
   // render that hasn't committed yet.
   const repsTextRef = useRef(repsText);
   const loadTextRef = useRef(loadText);
-  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const flushDraft = useCallback(() => {
-    if (draftTimerRef.current !== null) {
-      clearTimeout(draftTimerRef.current);
-      draftTimerRef.current = null;
-    }
+  const saveDraftNow = useCallback(() => {
     if (isComplete) return; // completed reality is not a draft
     const reps = parseRepsInput(repsTextRef.current);
     const load = parseLoadInput(loadTextRef.current);
@@ -703,6 +704,11 @@ function SetRow({
       load !== null ? { kind: "EXTERNAL_WEIGHT", amountMilli: loadToAmountMilli(load), unit, basis } : null,
     );
   }, [isComplete, onDraftChanged, unit, basis]);
+  // The debouncer lives for this row's whole mount; it always calls the latest `saveDraftNow`.
+  const saveDraftRef = useRef(saveDraftNow);
+  useEffect(() => {
+    saveDraftRef.current = saveDraftNow;
+  }, [saveDraftNow]);
 
   /**
    * Debounced auto-save while typing (spec section 33: "persisted...
@@ -715,18 +721,17 @@ function SetRow({
    * for). A kill within that ~400ms window can still lose the very latest
    * character — no debounce can fully close that gap without per-
    * keystroke writes, which the spec explicitly rules out.
+   * ANDROID-STAB-03 D2: an unmount (exercise switch) inside that window now
+   * saves the pending draft instead of cancelling it.
    */
-  const scheduleDraftFlush = useCallback(() => {
-    if (draftTimerRef.current !== null) clearTimeout(draftTimerRef.current);
-    draftTimerRef.current = setTimeout(flushDraft, 400);
-  }, [flushDraft]);
-
-  useEffect(
-    () => () => {
-      if (draftTimerRef.current !== null) clearTimeout(draftTimerRef.current);
-    },
-    [],
-  );
+  const draftDebouncerRef = useRef<DraftDebouncer | null>(null);
+  useEffect(() => {
+    const debouncer = createDraftDebouncer(() => saveDraftRef.current());
+    draftDebouncerRef.current = debouncer;
+    return () => debouncer.dispose();
+  }, []);
+  const scheduleDraftFlush = useCallback(() => draftDebouncerRef.current?.schedule(), []);
+  const flushDraft = useCallback(() => draftDebouncerRef.current?.flush(), []);
 
   const canSubmit = repsValid && loadValid;
   const onPressComplete = useCallback(() => {
