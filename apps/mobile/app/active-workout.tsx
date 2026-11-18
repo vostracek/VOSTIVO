@@ -28,6 +28,7 @@ import { computeRemainingSeconds, isRestTimerFinished, resolveRestDuration } fro
 import { formatLoad, formatPreviousSet, formatRepTarget } from "../src/workout/format-target";
 import { previousPerformanceRefs, previousSetsFor, resolvePrefill } from "../src/workout/active-workout-presentation";
 import { loadToAmountMilli, parseLoadInput, parseRepsInput } from "../src/workout/numeric-input";
+import { createFinishGuard } from "../src/workout/finish-guard";
 import { createInFlightGuard, setActionKey } from "../src/workout/in-flight-guard";
 import { colors, radius, spacing, touchTarget, typography } from "../src/design/tokens";
 
@@ -76,6 +77,8 @@ export default function ActiveWorkoutScreen(): React.JSX.Element {
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   // CORE-FIX-11: one in-flight set action per planned set slot (see in-flight-guard.ts).
   const setActionGuard = useRef(createInFlightGuard()).current;
+  // ANDROID-STAB-03 D1: Finish runs once per session; a late second tap never replaces the summary.
+  const finishGuard = useRef(createFinishGuard()).current;
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
 
 
@@ -136,37 +139,38 @@ export default function ActiveWorkoutScreen(): React.JSX.Element {
   }, [service]);
 
   const handleFinish = useCallback(
-    async (session: ActiveWorkoutSession) => {
-      const { totalPlannedSets, completedWorkingSets } = computeSessionCompletion(session);
-      const startedAtMs = new Date(session.startedAt).getTime();
-      const durationSeconds = Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
+    (session: ActiveWorkoutSession) =>
+      finishGuard.run(session.id, async () => {
+        const { totalPlannedSets, completedWorkingSets } = computeSessionCompletion(session);
+        const startedAtMs = new Date(session.startedAt).getTime();
+        const durationSeconds = Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
 
-      const outcome = await service.finishWorkoutSession(session.id);
-      if (outcome.status === "ALREADY_FINISHED") {
-        // The local terminal invariant already resolved this session —
-        // just reflect real local state rather than fabricating a summary.
-        await loadSession();
-        return;
-      }
-      syncCoordinator.requestSync("mutation");
+        const outcome = await service.finishWorkoutSession(session.id);
+        if (outcome.status === "ALREADY_FINISHED") {
+          // The local terminal invariant already resolved this session —
+          // just reflect real local state rather than fabricating a summary.
+          await loadSession();
+          return;
+        }
+        syncCoordinator.requestSync("mutation");
 
-      setState({
-        status: "finished",
-        summary: { workoutName: session.prescription.name, durationSeconds, completedWorkingSets, totalPlannedSets },
-      });
-    },
-    [service, syncCoordinator, loadSession],
+        setState({
+          status: "finished",
+          summary: { workoutName: session.prescription.name, durationSeconds, completedWorkingSets, totalPlannedSets },
+        });
+      }),
+    [finishGuard, service, syncCoordinator, loadSession],
   );
 
   const onTapFinish = useCallback(() => {
-    if (state.status !== "active") return;
+    if (state.status !== "active" || finishGuard.isClaimed(state.session.id)) return;
     const { allSetsComplete } = computeSessionCompletion(state.session);
     if (!allSetsComplete) {
       setShowFinishConfirm(true);
     } else {
       void handleFinish(state.session);
     }
-  }, [state, handleFinish]);
+  }, [state, handleFinish, finishGuard]);
 
   if (state.status === "loading") {
     return (
