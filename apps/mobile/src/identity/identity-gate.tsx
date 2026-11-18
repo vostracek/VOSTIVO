@@ -8,7 +8,7 @@ import { expoSecureValueStore } from "../infrastructure/secure-value-store";
 import { reactNativeAppLifecycleSource } from "../infrastructure/react-native-app-lifecycle";
 import { createExpoNetworkConnectivitySource } from "../infrastructure/expo-network-connectivity";
 import { startOutboxSyncRecovery } from "../infrastructure/sync-recovery";
-import type { WorkoutSyncLogger } from "../infrastructure/workout-sync-coordinator";
+import { realScheduler, type WorkoutSyncLogger } from "../infrastructure/workout-sync-coordinator";
 import { openNativeAthleteDatabase } from "../local-database/client";
 import { colors, radius, spacing, touchTarget, typography } from "../design/tokens";
 import { createSupabaseAuthSessionSource } from "../auth/supabase-auth-client";
@@ -93,6 +93,8 @@ export function IdentityGate({ children }: { children: React.ReactNode }): React
         onStateChange: setState,
         connectivity: createExpoNetworkConnectivitySource(),
         appLifecycle: reactNativeAppLifecycleSource,
+        // ANDROID-STAB-03 D3: retry owner verification while the app stays open (e.g. the API was down at launch).
+        reverifyScheduler: realScheduler,
       });
       controllerRef.current = controller;
       controller.start();

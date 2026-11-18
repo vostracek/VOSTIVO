@@ -21,3 +21,33 @@ export const ROUTE_BY_TARGET: Record<NavTarget, "/" | "/plan" | "/progress"> = {
   plan: "/plan",
   progress: "/progress",
 };
+
+/**
+ * ANDROID-STAB-03 D4: the screen-reader semantics of one nav item, framework-free so they are unit-tested.
+ * A not-yet-available item (Profile) is ONE focusable element that says so —
+ * no button role (nothing would happen), `disabled` state — instead of a
+ * bare text node whose label was never exposed.
+ */
+export interface NavItemAccessibility {
+  readonly accessible: true;
+  readonly accessibilityRole: "button" | undefined;
+  readonly accessibilityLabel: string;
+  readonly accessibilityState: { readonly disabled: boolean; readonly selected: boolean };
+}
+
+export function navItemAccessibility(item: NavItem, isActive: boolean): NavItemAccessibility {
+  if (item.target === null) {
+    return {
+      accessible: true,
+      accessibilityRole: undefined,
+      accessibilityLabel: `${item.label}, not available yet`,
+      accessibilityState: { disabled: true, selected: false },
+    };
+  }
+  return {
+    accessible: true,
+    accessibilityRole: "button",
+    accessibilityLabel: item.label,
+    accessibilityState: { disabled: false, selected: isActive },
+  };
+}
