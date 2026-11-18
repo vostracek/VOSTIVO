@@ -39,7 +39,7 @@ export interface WorkoutSyncCoordinatorOptions {
   readonly batchSize?: number;
 }
 
-const realScheduler: SyncScheduler = {
+export const realScheduler: SyncScheduler = {
   setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };

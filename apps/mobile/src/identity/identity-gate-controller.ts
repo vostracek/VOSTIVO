@@ -3,6 +3,7 @@ import type { VerifiedIdentity } from "./identity-binding-store";
 import type { IdentityResolution } from "./identity-resolution";
 import type { LocalDataUnavailableReason } from "../local-database/athlete-database";
 import type { AppLifecycleSource, ConnectivitySource } from "../infrastructure/sync-recovery";
+import type { SyncScheduler } from "../infrastructure/workout-sync-coordinator";
 
 /** What the gate needs from an athlete runtime: who owns it, whether it may sync, and how to tear it down. */
 export interface OwnedRuntime {
@@ -63,7 +64,27 @@ export interface IdentityGatePorts<Runtime extends OwnedRuntime> {
   readonly connectivity?: ConnectivitySource;
   /** Foreground re-verifies an owner that is not verified online yet (Slice C). */
   readonly appLifecycle?: AppLifecycleSource;
+  /**
+   * ANDROID-STAB-03 D3: bounded re-verification retry while the app stays
+   * active (see `OWNER_REVERIFY_RETRY_DELAYS_MS`). Omitted -> no timer, only
+   * the network-regain / foreground triggers above.
+   */
+  readonly reverifyScheduler?: SyncScheduler;
 }
+
+/**
+ * ANDROID-STAB-03 D3: an owner opened from its stored binding (offline boot,
+ * or `/me` unreachable while the device itself is online — e.g. the API is
+ * down) used to wait for a network-regain or foreground event that never
+ * comes while the athlete keeps the app open, so its outbox stayed on the
+ * device. While the app is ACTIVE and not known to be offline, the gate now
+ * re-runs the SAME `/me` verification on this capped backoff (the last value
+ * repeats). Sync is still granted only by a successful ONLINE verification —
+ * a timer never permits sync by itself. One timer at most, never while a
+ * verification is running, cleared on background / known offline / an
+ * invalid session / stop; never a background job.
+ */
+export const OWNER_REVERIFY_RETRY_DELAYS_MS: readonly number[] = [5_000, 10_000, 30_000, 60_000];
 
 interface ActiveOwner<Runtime> {
   readonly session: Pick<AuthSession, "provider" | "providerSubject">;
@@ -114,6 +135,10 @@ export class IdentityGateController<Runtime extends OwnedRuntime> {
   private requested = 0;
   private stopped = false;
   private readonly unsubscribers: (() => void)[] = [];
+  private appActive = true;
+  private knownOffline = false;
+  private reverifyTimer: { readonly handle: unknown } | undefined;
+  private reverifyAttempts = 0;
 
   constructor(private readonly ports: IdentityGatePorts<Runtime>) {}
 
@@ -124,11 +149,20 @@ export class IdentityGateController<Runtime extends OwnedRuntime> {
     const connectivity = this.ports.connectivity?.subscribe((isConnected) => {
       const regained = isConnected && wasConnected === false;
       wasConnected = isConnected;
+      this.knownOffline = !isConnected;
+      if (!isConnected) this.clearReverifyTimer();
+      if (regained) this.reverifyAttempts = 0;
       if (regained && this.needsOnlineVerification()) void this.reevaluate();
     });
     if (connectivity !== undefined) this.unsubscribers.push(connectivity);
     const lifecycle = this.ports.appLifecycle?.subscribe((state) => {
-      if (state === "active" && this.needsOnlineVerification()) void this.reevaluate();
+      this.appActive = state === "active";
+      if (!this.appActive) {
+        this.clearReverifyTimer();
+        return;
+      }
+      this.reverifyAttempts = 0;
+      if (this.needsOnlineVerification()) void this.reevaluate();
     });
     if (lifecycle !== undefined) this.unsubscribers.push(lifecycle);
     void this.reevaluate();
@@ -137,13 +171,20 @@ export class IdentityGateController<Runtime extends OwnedRuntime> {
   /** Re-runs resolution (e.g. "Try again", a reported invalid session). */
   reevaluate(): Promise<void> {
     const ticket = ++this.requested;
-    this.queue = this.queue.then(() => this.evaluate(ticket)).catch(() => this.publish({ status: "IDENTITY_ERROR", reason: "UNEXPECTED" }));
+    this.clearReverifyTimer();
+    this.queue = this.queue
+      .then(() => this.evaluate(ticket))
+      .catch(() => this.publish({ status: "IDENTITY_ERROR", reason: "UNEXPECTED" }))
+      .then(() => {
+        if (ticket === this.requested) this.armReverifyTimer();
+      });
     return this.queue;
   }
 
   /** Unsubscribes and disposes the current runtime (awaited). */
   async stop(): Promise<void> {
     this.stopped = true;
+    this.clearReverifyTimer();
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
     this.requested += 1;
     await this.queue;
@@ -152,6 +193,29 @@ export class IdentityGateController<Runtime extends OwnedRuntime> {
 
   private needsOnlineVerification(): boolean {
     return this.active !== undefined && this.active.verification !== "ONLINE";
+  }
+
+  /** D3: at most one pending re-verification, only for a VALID owner not yet verified online, while active and not known offline. */
+  private armReverifyTimer(): void {
+    const scheduler = this.ports.reverifyScheduler;
+    if (scheduler === undefined || this.stopped || this.reverifyTimer !== undefined) return;
+    if (this.active?.verification === "ONLINE") this.reverifyAttempts = 0;
+    if (!this.appActive || this.knownOffline || !this.needsOnlineVerification() || this.active?.auth !== "VALID") return;
+    const delays = OWNER_REVERIFY_RETRY_DELAYS_MS;
+    const delayMs = delays[Math.min(this.reverifyAttempts, delays.length - 1)] ?? 60_000;
+    this.reverifyAttempts += 1;
+    const handle = scheduler.setTimeout(() => {
+      if (this.reverifyTimer?.handle !== handle) return;
+      this.reverifyTimer = undefined;
+      if (this.needsOnlineVerification()) void this.reevaluate();
+    }, delayMs);
+    this.reverifyTimer = { handle };
+  }
+
+  private clearReverifyTimer(): void {
+    if (this.reverifyTimer === undefined) return;
+    this.ports.reverifyScheduler?.clearTimeout(this.reverifyTimer.handle);
+    this.reverifyTimer = undefined;
   }
 
   private async evaluate(ticket: number): Promise<void> {
