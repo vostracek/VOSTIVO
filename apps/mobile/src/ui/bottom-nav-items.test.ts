@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { NAV_ITEMS, ROUTE_BY_TARGET } from "./bottom-nav-items";
+import { NAV_ITEMS, ROUTE_BY_TARGET, navItemAccessibility } from "./bottom-nav-items";
 
 const appFile = (route: string): string => readFileSync(new URL(`../../app/${route}`, import.meta.url), "utf8");
 
@@ -24,5 +24,38 @@ describe("bottom navigation", () => {
       expect(source).not.toContain("BottomNav");
       expect(source).toContain("<BackHeader />");
     }
+  });
+
+  describe("accessibility (ANDROID-STAB-03 D4)", () => {
+    const profile = NAV_ITEMS.find((item) => item.label === "Profile")!;
+    const today = NAV_ITEMS.find((item) => item.label === "Today")!;
+
+    it("NAV-A11Y-001: Profile is one focusable element announced as unavailable, never as a working tab/button", () => {
+      expect(navItemAccessibility(profile, false)).toEqual({
+        accessible: true,
+        accessibilityRole: undefined,
+        accessibilityLabel: "Profile, not available yet",
+        accessibilityState: { disabled: true, selected: false },
+      });
+      // Even if it were somehow "active", it never claims to be selected.
+      expect(navItemAccessibility(profile, true).accessibilityState.selected).toBe(false);
+    });
+
+    it("NAV-A11Y-002: real destinations stay buttons with their plain label and selected state", () => {
+      expect(navItemAccessibility(today, true)).toEqual({
+        accessible: true,
+        accessibilityRole: "button",
+        accessibilityLabel: "Today",
+        accessibilityState: { disabled: false, selected: true },
+      });
+      expect(navItemAccessibility(today, false).accessibilityState.selected).toBe(false);
+    });
+
+    it("NAV-A11Y-003: BottomNav applies these semantics to the unavailable item (no Pressable, no onPress, no Profile route)", () => {
+      const source = readFileSync(new URL("./bottom-nav.tsx", import.meta.url), "utf8");
+      expect(source).toContain("navItemAccessibility(item, isActive)");
+      expect(source).toMatch(/<View key=\{item\.label\} style=\{styles\.item\} \{\.\.\.a11y\}>/);
+      expect(Object.keys(ROUTE_BY_TARGET)).not.toContain("profile");
+    });
   });
 });

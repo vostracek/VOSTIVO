@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, touchTarget, typography } from "../design/tokens";
-import { NAV_ITEMS, ROUTE_BY_TARGET, type NavTarget } from "./bottom-nav-items";
+import { NAV_ITEMS, ROUTE_BY_TARGET, navItemAccessibility, type NavTarget } from "./bottom-nav-items";
 
 /**
  * Persistent bottom navigation (Today V1 Foundation task §2) — Today,
@@ -21,11 +21,11 @@ export function BottomNav({ active }: { active: NavTarget }): React.JSX.Element 
     <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
       {NAV_ITEMS.map((item) => {
         const isActive = item.target === active;
-        const enabled = item.target !== null;
+        const a11y = navItemAccessibility(item, isActive);
 
-        if (!enabled) {
+        if (item.target === null) {
           return (
-            <View key={item.label} style={styles.item} accessibilityLabel={`${item.label} — not available yet`} accessibilityState={{ disabled: true }}>
+            <View key={item.label} style={styles.item} {...a11y}>
               <Text style={[styles.label, styles.labelDisabled]}>{item.label}</Text>
             </View>
           );
@@ -38,9 +38,7 @@ export function BottomNav({ active }: { active: NavTarget }): React.JSX.Element 
             style={styles.item}
             disabled={isActive}
             onPress={() => router.replace(ROUTE_BY_TARGET[target])}
-            accessibilityRole="button"
-            accessibilityLabel={item.label}
-            accessibilityState={{ selected: isActive }}
+            {...a11y}
           >
             <Text style={[styles.label, isActive && styles.labelActive]}>{item.label}</Text>
           </Pressable>
