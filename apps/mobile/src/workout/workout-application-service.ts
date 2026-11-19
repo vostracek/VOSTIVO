@@ -7,6 +7,7 @@ import type {
   PreviousSetPerformance,
   ReopenSetOutcome,
   StartWorkoutSessionOutcome,
+  UnsyncedWorkSummary,
   WorkoutRepository,
 } from "./workout-repository";
 import type { SyncEngine, SyncPendingCommandsResult } from "./sync-engine";
@@ -95,5 +96,10 @@ export class WorkoutApplicationService {
   /** CC-03: unresolved sync state (BLOCKED / held / REJECTED / CONFLICT) for Today's notice. */
   getUnresolvedSyncSummary(): Promise<UnresolvedSyncSummary> {
     return this.repository.getUnresolvedSyncSummary();
+  }
+
+  /** Auth Slice D: unsynced outbox commands + an ACTIVE workout, checked before sign-out. */
+  getUnsyncedWorkSummary(): Promise<UnsyncedWorkSummary> {
+    return this.repository.getUnsyncedWorkSummary();
   }
 }

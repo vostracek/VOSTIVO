@@ -697,6 +697,18 @@ export class WorkoutRepository implements OutboxPort {
     return { blocked: countOf("BLOCKED"), waitingOnBlocked, rejected: countOf("REJECTED"), conflicted: countOf("CONFLICT") };
   }
 
+  /**
+   * Auth Slice D (sign-out): the owner's work that has NOT reached the server
+   * yet — outbox commands still on their way (PENDING / RETRY / SYNCING /
+   * BLOCKED; REJECTED and CONFLICT are final server outcomes and never sent
+   * again) plus whether a workout is still ACTIVE on this phone. Read-only.
+   */
+  async getUnsyncedWorkSummary(): Promise<UnsyncedWorkSummary> {
+    const db = await this.openDatabase();
+    const row = db.get<{ n: number }>(sql`SELECT count(*) AS n FROM sync_outbox WHERE status IN ('PENDING', 'RETRY', 'SYNCING', 'BLOCKED')`);
+    return { pendingCommands: row?.n ?? 0, hasActiveWorkout: readActiveSession(db) !== undefined };
+  }
+
   async markSyncing(commandId: string): Promise<void> {
     await this.setOutboxStatus(commandId, "SYNCING", { incrementAttempt: true });
   }
@@ -968,4 +980,10 @@ function parseStoredAvailableTimeApplication(json: string | null): AvailableTime
   const parsed = validateAvailableTimeApplication(JSON.parse(json));
   if (!parsed.ok) throw new Error(`Stored Available-Time application is corrupt: ${parsed.error}`);
   return parsed.value;
+}
+
+/** Auth Slice D: see `WorkoutRepository.getUnsyncedWorkSummary`. */
+export interface UnsyncedWorkSummary {
+  readonly pendingCommands: number;
+  readonly hasActiveWorkout: boolean;
 }

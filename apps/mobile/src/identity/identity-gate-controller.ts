@@ -181,6 +181,46 @@ export class IdentityGateController<Runtime extends OwnedRuntime> {
     return this.queue;
   }
 
+  /** Whether this session source supports an explicit sign-out (Auth Slice D). */
+  get canSignOut(): boolean {
+    return this.ports.sessionSource.signOut !== undefined;
+  }
+
+  /**
+   * Auth Slice D — explicit sign-out, in the order AUTH-LOCAL-BOUNDARY §10
+   * fixes: the owner's runtime is detached (tree unmounts, state VERIFYING)
+   * and disposed — sync coordinator stopped, database closed, awaited —
+   * BEFORE the session is signed out; then the gate re-evaluates (no
+   * session -> SIGNED_OUT). Serialized with every other evaluation. Nothing
+   * is deleted: the owner's database file and identity binding stay, so the
+   * same athlete signing back in gets everything back. If the provider
+   * refuses, the still-valid session simply reopens the same owner.
+   */
+  signOut(): Promise<"SIGNED_OUT" | "FAILED"> {
+    const signOut = this.ports.sessionSource.signOut?.bind(this.ports.sessionSource);
+    if (signOut === undefined) return Promise.resolve("FAILED");
+    const ticket = ++this.requested;
+    this.clearReverifyTimer();
+    let result: "SIGNED_OUT" | "FAILED" = "FAILED";
+    this.queue = this.queue
+      .then(async () => {
+        if (this.stopped) return;
+        await this.detachAndDispose();
+        try {
+          await signOut();
+          result = "SIGNED_OUT";
+        } catch {
+          result = "FAILED";
+        }
+        if (ticket === this.requested) await this.evaluate(ticket);
+      })
+      .catch(() => this.publish({ status: "IDENTITY_ERROR", reason: "UNEXPECTED" }))
+      .then(() => {
+        if (ticket === this.requested) this.armReverifyTimer();
+      });
+    return this.queue.then(() => result);
+  }
+
   /** Unsubscribes and disposes the current runtime (awaited). */
   async stop(): Promise<void> {
     this.stopped = true;

@@ -388,4 +388,63 @@ describe("IdentityGateController", () => {
     expect(h.log).toContain("dispose:" + A.userId);
     expect(h.states.length).toBe(count);
   });
+
+  describe("Auth Slice D — explicit sign-out", () => {
+    it("AUTH-LOCAL-004 / teardown order: A's runtime is detached and disposed (sync stopped, DB closed) BEFORE the session is signed out; then SIGNED_OUT", async () => {
+      const h = harness(SESSION_A, verifyOnline);
+      h.source.enableSignOut(h.log);
+      h.controller.start();
+      await h.settle();
+      const runtimeA = h.runtime();
+      h.log.length = 0;
+
+      await expect(h.controller.signOut()).resolves.toBe("SIGNED_OUT");
+      await h.settle();
+
+      expect(h.log.slice(0, 3)).toEqual(["state:VERIFYING", "dispose:" + A.userId, "signOut"]);
+      expect(h.current()).toEqual({ status: "SIGNED_OUT" });
+      expect(runtimeA.disposed).toBe(true);
+      expect(h.log).not.toContain("open:" + A.userId);
+    });
+
+    it("AUTH-LOCAL-004: signing back in as the same athlete reopens the SAME owner (nothing was deleted or re-owned)", async () => {
+      const h = harness(SESSION_A, verifyOnline);
+      h.source.enableSignOut(h.log);
+      h.controller.start();
+      await h.settle();
+      await h.controller.signOut();
+      await h.settle();
+      h.log.length = 0;
+
+      h.source.set(SESSION_A);
+      await h.settle();
+
+      expect(h.current()).toMatchObject({ status: "READY", identity: A });
+      expect(h.log).toContain("open:" + A.userId);
+    });
+
+    it("a refused provider sign-out never strands the athlete: the still-valid session reopens the same owner", async () => {
+      const h = harness(SESSION_A, verifyOnline);
+      h.source.enableSignOut(h.log, true);
+      h.controller.start();
+      await h.settle();
+
+      await expect(h.controller.signOut()).resolves.toBe("FAILED");
+      await h.settle();
+
+      expect(h.current()).toMatchObject({ status: "READY", identity: A });
+    });
+
+    it("a source without sign-out (dev token) cannot sign out and keeps the owner open", async () => {
+      const h = harness(SESSION_A, verifyOnline);
+      h.controller.start();
+      await h.settle();
+      const runtimeA = h.runtime();
+
+      expect(h.controller.canSignOut).toBe(false);
+      await expect(h.controller.signOut()).resolves.toBe("FAILED");
+      expect(runtimeA.disposed).toBe(false);
+      expect(h.current()).toMatchObject({ status: "READY", identity: A });
+    });
+  });
 });

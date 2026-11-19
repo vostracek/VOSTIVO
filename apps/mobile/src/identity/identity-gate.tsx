@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { usePathname } from "expo-router";
@@ -24,6 +24,7 @@ import { createAthleteRuntimeOpener } from "./athlete-runtime-opener";
 import { fetchVerifiedMe } from "./verified-me-client";
 import { AthleteRuntimeProvider } from "./athlete-runtime-context";
 import { nextAuthRecoveryCount, type ReadyAuthStatus } from "./auth-recovery";
+import { AccountProvider, type AccountCapabilities } from "../account/account-context";
 
 // DEV-only: counts, triggers and delays — never tokens or workout payloads.
 const devSyncLogger: WorkoutSyncLogger = {
@@ -110,6 +111,17 @@ export function IdentityGate({ children }: { children: React.ReactNode }): React
     };
   }, [wiring]);
 
+  // Auth Slice D: the Account surface's only view of the session (no token, no source).
+  const account = useMemo<AccountCapabilities>(
+    () => ({
+      signInMethod: wiring.supabase !== null ? "EMAIL_OTP" : "DEV_TOKEN",
+      signOutAvailable: wiring.supabase !== null && wiring.source.signOut !== undefined,
+      readEmail: () => wiring.supabase?.accountEmail?.() ?? Promise.resolve(null),
+      signOut: () => controllerRef.current?.signOut() ?? Promise.resolve("FAILED"),
+    }),
+    [wiring],
+  );
+
   const switcher = wiring.devIdentitySwitcher;
   const devPill = switcher === null ? null : <DevIdentitySwitcher switcher={switcher} />;
 
@@ -125,7 +137,7 @@ export function IdentityGate({ children }: { children: React.ReactNode }): React
     return (
       <AthleteRuntimeProvider key={state.identity.userId} runtime={state.runtime} authRecoveries={authRecoveries}>
         <AthleteSyncRecovery runtime={state.runtime} />
-        {children}
+        <AccountProvider value={account}>{children}</AccountProvider>
         {state.auth === "REAUTH_REQUIRED" ? <ReauthPrompt signIn={wiring.supabase} /> : null}
         {devPill}
       </AthleteRuntimeProvider>

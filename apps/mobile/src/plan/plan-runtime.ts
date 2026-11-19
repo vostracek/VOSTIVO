@@ -20,6 +20,8 @@ import { FetchProgressApiClient, type ProgressApiClient } from "../progress/prog
 import type { AthleteDatabaseHandle } from "../local-database/athlete-database-handle";
 import { FetchPlanApiClient } from "./plan-api-client";
 import { PlanApplicationService } from "./plan-application-service";
+import type { MeResponse } from "@vostivo/contracts";
+import type { SignOutCheckPorts } from "../account/sign-out-flow";
 
 /**
  * The composition root for ONE verified athlete (Auth & Local Athlete
@@ -66,6 +68,10 @@ export interface AthleteRuntime {
   readonly progressApiClient: ProgressApiClient;
   /** CC-03 — Today's unresolved-sync notice ports (stable identity). */
   readonly unresolvedSyncPorts: UnresolvedSyncPorts;
+  /** Profile V1 — read-only `GET /me` for the training identity (no profile writes here). */
+  readonly profileReads: { getMe(): Promise<MeResponse> };
+  /** Auth Slice D — the pre-sign-out unsynced-work check (stable identity). */
+  readonly signOutCheckPorts: SignOutCheckPorts;
   /**
    * Auth Slice C — the IdentityGate grants/withdraws outbox sync for this
    * owner (verified online + valid session). Granting it requests a sync;
@@ -160,6 +166,12 @@ export function createAthleteRuntime(input: AthleteRuntimeInput): AthleteRuntime
     unresolvedSyncPorts: {
       readSummary: () => workoutApplicationService.getUnresolvedSyncSummary(),
       isRequestRejected: () => workoutSyncCoordinator.requestRejectedAtLastAttempt,
+      onSyncPassSettled: (listener) => workoutSyncCoordinator.onPassSettled(listener),
+    },
+    profileReads: { getMe: () => me.getMe() },
+    signOutCheckPorts: {
+      readUnsyncedWork: () => workoutApplicationService.getUnsyncedWorkSummary(),
+      requestSync: () => workoutSyncCoordinator.requestSync("sign-out"),
       onSyncPassSettled: (listener) => workoutSyncCoordinator.onPassSettled(listener),
     },
     setSyncPermitted(permitted) {

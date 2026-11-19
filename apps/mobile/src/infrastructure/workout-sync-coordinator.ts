@@ -5,7 +5,7 @@ import { SyncPausedError } from "../workout/auth-token-provider";
  * Why a sync pass was requested. Only used for DEV observability — every
  * trigger is handled identically (spec: one coordinator, one policy).
  */
-export type WorkoutSyncTrigger = "mutation" | "launch" | "foreground" | "network-regain" | "retry" | "reverified";
+export type WorkoutSyncTrigger = "mutation" | "launch" | "foreground" | "network-regain" | "retry" | "reverified" | "sign-out";
 
 /**
  * The deterministic V1 retry backoff after a retryable failure: 2 s, 5 s,

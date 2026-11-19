@@ -6,7 +6,20 @@ export class ControllableSessionSource implements AuthSessionSource {
   private loss: SessionLoss = "SIGNED_OUT";
   private storageUnavailable = false;
 
+  /** Auth Slice D — present only after `enableSignOut` (like a real Supabase source; dev sources have none). */
+  signOut?: () => Promise<void>;
+
   constructor(private session: AuthSession | null) {}
+
+  /** Gives this source an explicit sign-out that logs `signOut`, then drops the session as SIGNED_OUT — or fails. */
+  enableSignOut(log: string[], fail = false): void {
+    this.signOut = () => {
+      log.push("signOut");
+      if (fail) return Promise.reject(new Error("provider refused"));
+      this.set(null, "SIGNED_OUT");
+      return Promise.resolve();
+    };
+  }
 
   set(session: AuthSession | null, loss: SessionLoss = "SIGNED_OUT"): void {
     this.session = session;
