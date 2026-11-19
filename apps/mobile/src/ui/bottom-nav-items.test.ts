@@ -5,16 +5,18 @@ import { NAV_ITEMS, ROUTE_BY_TARGET, navItemAccessibility } from "./bottom-nav-i
 const appFile = (route: string): string => readFileSync(new URL(`../../app/${route}`, import.meta.url), "utf8");
 
 describe("bottom navigation", () => {
-  it("Progress is a real destination backed by the /progress route; Profile stays unavailable", () => {
+  it("Progress and Profile (V1) are real destinations backed by their routes", () => {
     expect(NAV_ITEMS.map((item) => [item.label, item.target])).toEqual([
       ["Today", "today"],
       ["Plan", "plan"],
       ["Progress", "progress"],
-      ["Profile", null],
+      ["Profile", "profile"],
     ]);
     expect(ROUTE_BY_TARGET.progress).toBe("/progress");
-    // The route file exists (readFileSync throws otherwise) and is a real screen.
+    expect(ROUTE_BY_TARGET.profile).toBe("/profile");
+    // The route files exist (readFileSync throws otherwise) and are real screens.
     expect(appFile("progress/index.tsx")).toContain("export default function ProgressScreen");
+    expect(appFile("profile/index.tsx")).toContain("export default function ProfileScreen");
   });
 
   it("the Progress screen renders the bottom nav with Progress active; drill-downs follow the detail convention (no bottom nav)", () => {
@@ -27,18 +29,23 @@ describe("bottom navigation", () => {
   });
 
   describe("accessibility (ANDROID-STAB-03 D4)", () => {
-    const profile = NAV_ITEMS.find((item) => item.label === "Profile")!;
+    const placeholder = { label: "Later", target: null, icon: "profile" } as const;
     const today = NAV_ITEMS.find((item) => item.label === "Today")!;
+    const profile = NAV_ITEMS.find((item) => item.label === "Profile")!;
 
-    it("NAV-A11Y-001: Profile is one focusable element announced as unavailable, never as a working tab/button", () => {
-      expect(navItemAccessibility(profile, false)).toEqual({
+    it("NAV-A11Y-001: an unavailable item is one focusable element announced as unavailable, never as a working tab/button", () => {
+      expect(navItemAccessibility(placeholder, false)).toEqual({
         accessible: true,
         accessibilityRole: undefined,
-        accessibilityLabel: "Profile, not available yet",
+        accessibilityLabel: "Later, not available yet",
         accessibilityState: { disabled: true, selected: false },
       });
       // Even if it were somehow "active", it never claims to be selected.
-      expect(navItemAccessibility(profile, true).accessibilityState.selected).toBe(false);
+      expect(navItemAccessibility(placeholder, true).accessibilityState.selected).toBe(false);
+    });
+
+    it("NAV-A11Y-004: Profile V1 is now a real button destination", () => {
+      expect(navItemAccessibility(profile, false)).toMatchObject({ accessibilityRole: "button", accessibilityLabel: "Profile", accessibilityState: { disabled: false } });
     });
 
     it("NAV-A11Y-002: real destinations stay buttons with their plain label and selected state", () => {
@@ -51,11 +58,10 @@ describe("bottom navigation", () => {
       expect(navItemAccessibility(today, false).accessibilityState.selected).toBe(false);
     });
 
-    it("NAV-A11Y-003: BottomNav applies these semantics to the unavailable item (no Pressable, no onPress, no Profile route)", () => {
+    it("NAV-A11Y-003: BottomNav applies these semantics to an unavailable item (no Pressable, no onPress)", () => {
       const source = readFileSync(new URL("./bottom-nav.tsx", import.meta.url), "utf8");
       expect(source).toContain("navItemAccessibility(item, isActive)");
       expect(source).toMatch(/<View key=\{item\.label\} style=\{styles\.item\} \{\.\.\.a11y\}>/);
-      expect(Object.keys(ROUTE_BY_TARGET)).not.toContain("profile");
     });
   });
 });
