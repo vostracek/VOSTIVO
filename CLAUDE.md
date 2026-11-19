@@ -1803,6 +1803,17 @@ Dogfood Identity Import (Phase C): CLOSED (2026-10-30). One real identity
 ```
 
 ```text
+Athlete Design Integration 01:   PR A (Foundations V1 tokens + Archivo +
+                                  react-native-svg icons + shared UI; Today,
+                                  Plan, Progress, Active Workout v2 parity)
+                                  implemented 2026-11-19, device QA on Huawei
+                                  P20 Pro. Presentation only — no contract,
+                                  API or sync change. Deviations, omitted
+                                  canvas elements and the light-mode gap:
+                                  docs/architecture/ATHLETE-DESIGN-INTEGRATION.md.
+```
+
+```text
 Completed foundation:     Monorepo, tooling, CI, all apps/packages
                            scaffolded, health endpoints, SQLCipher-encrypted
                            local DB + key-management boundary (verified on
@@ -1861,15 +1872,10 @@ Current known tech debt:  ESLint major-version split (web/mobile on 9.x);
                            `unstable_enableSymlinks: true` for pnpm's
                            nested workspace symlinks (expo-doctor flags
                            this override by design — it is intentional,
-                           do not remove it); no design-token/asset source
-                           of truth exists yet beyond the locked palette/
-                           spacing values now aligned in
-                           `apps/mobile/src/design/tokens.ts` (still
-                           provisional implementation infrastructure, not
-                           the product design-system source of truth — see
-                           docs/architecture/ACTIVE-WORKOUT.md); no
-                           Archivo font files exist in this repo, so
-                           typography still uses the OS system font;
+                           do not remove it); Foundations V1 has no light
+                           semantic layer, so the app is dark in every
+                           system appearance (documented gap, see
+                           docs/architecture/ATHLETE-DESIGN-INTEGRATION.md);
                            `expo`/`expo-router` have a routine upstream
                            patch version drift (57.0.19/57.0.18 vs. the
                            SDK's expected 57.0.20/57.0.19) — not yet
@@ -1881,8 +1887,7 @@ Current known tech debt:  ESLint major-version split (web/mobile on 9.x);
                            docs/architecture/PLAN-PRESCRIPTION.md, and
                            docs/architecture/ACTIVE-WORKOUT.md.
 Active Workout visual polish (non-blocking, tracked for a future Claude
-Design pass, not open functional blockers): no Archivo font files loaded
-(system font substitutes); the set-table card gradient/well tones are a
+Design pass, not open functional blockers): the set-table card gradient/well tones are a
 close but not pixel-exact match to the canvas's exact stops; future
 (not-yet-current) sets keep a small always-editable complete affordance
 rather than the canvas's fully read-only treatment (deliberate, protects

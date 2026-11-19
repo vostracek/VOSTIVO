@@ -32,7 +32,45 @@
           "useSQLCipher": true
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-font",
+        {
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "Archivo",
+                "fontDefinitions": [
+                  {
+                    "path": "./assets/fonts/Archivo-Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./assets/fonts/Archivo-Medium.ttf",
+                    "weight": 500
+                  },
+                  {
+                    "path": "./assets/fonts/Archivo-SemiBold.ttf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./assets/fonts/Archivo-Bold.ttf",
+                    "weight": 700
+                  }
+                ]
+              }
+            ]
+          },
+          "ios": {
+            "fonts": [
+              "./assets/fonts/Archivo-Regular.ttf",
+              "./assets/fonts/Archivo-Medium.ttf",
+              "./assets/fonts/Archivo-SemiBold.ttf",
+              "./assets/fonts/Archivo-Bold.ttf"
+            ]
+          }
+        }
+      ]
     ]
   }
 }

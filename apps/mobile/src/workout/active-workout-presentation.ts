@@ -71,3 +71,20 @@ export function resolvePrefill(
   }
   return { reps: "", load: "", unit: defaultUnit, basis: defaultBasis };
 }
+
+/**
+ * Athlete Design Integration 01 — the approved AW v2 "3 × 8–12" line under
+ * the exercise title: working-set count × the shared rep target. Shown only
+ * when every working set has the SAME target (otherwise per-row targets are
+ * the truth and a summary would mislead); `null` hides the line. RIR from the
+ * canvas ("• 1–2 RIR") is a deferred feature and never rendered.
+ */
+export function exerciseSetSummary(exercise: Pick<PrescribedExerciseV1, "sets">): string | null {
+  const working = exercise.sets.filter((set) => set.setType === "WORKING");
+  const first = working[0];
+  if (first === undefined || first.targetReps === null) return null;
+  const key = JSON.stringify(first.targetReps);
+  if (working.some((set) => JSON.stringify(set.targetReps) !== key)) return null;
+  const range = first.targetReps.kind === "EXACT" ? `${first.targetReps.reps}` : `${first.targetReps.minReps}–${first.targetReps.maxReps}`;
+  return `${working.length} × ${range}`;
+}

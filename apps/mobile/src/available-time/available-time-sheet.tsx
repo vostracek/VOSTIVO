@@ -378,10 +378,10 @@ const styles = StyleSheet.create({
   changeName: { ...typography.bodyStrong, color: colors.textPrimary, flexShrink: 1 },
   changeDetail: { ...typography.body, color: colors.textSecondary, flexShrink: 0 },
   actions: { gap: spacing.sm, paddingTop: spacing.sm },
-  primaryButton: { backgroundColor: colors.signal, borderRadius: radius.pill, minHeight: touchTarget.minHeight, alignItems: "center", justifyContent: "center" },
+  primaryButton: { backgroundColor: colors.primaryAction, borderRadius: radius.awSurface, minHeight: touchTarget.primary, alignItems: "center", justifyContent: "center" },
   primaryButtonDisabled: { opacity: 0.4 },
-  primaryButtonText: { ...typography.bodyStrong, color: colors.signalText },
-  secondaryButton: { minHeight: touchTarget.minHeight, alignItems: "center", justifyContent: "center", borderRadius: radius.pill },
+  primaryButtonText: { ...typography.awButtonLabelPrimary, textTransform: "uppercase", color: colors.primaryActionText },
+  secondaryButton: { minHeight: touchTarget.minHeight, alignItems: "center", justifyContent: "center", borderRadius: radius.awSurface },
   secondaryButtonText: { ...typography.bodyStrong, color: colors.textPrimary },
   pressed: { opacity: 0.85 },
 });

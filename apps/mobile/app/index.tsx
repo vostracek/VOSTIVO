@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import type { GuidedLoadingSetupAttentionV1, PendingProgressionApplicationV1, PlanSessionSummaryV1 } from "@vostivo/contracts";
+import type { GuidedLoadingSetupAttentionV1, PendingProgressionApplicationV1, PlanOverviewV1, PlanSessionSummaryV1 } from "@vostivo/contracts";
 import { logTechnicalFailure } from "../src/plan/plan-runtime";
 import { useAthleteRuntime, useAuthRecoveryCount } from "../src/identity/athlete-runtime-context";
 import { deriveTodayHeroState, type TodayOverviewState } from "../src/plan/today-derivation";
@@ -16,9 +16,13 @@ import { INITIAL_MISSED_WORKOUT_STATE, missedWorkoutCard, type MissedWorkoutFlow
 import { MissedWorkoutCard } from "../src/missed-workout/missed-workout-card";
 import { MissedWorkoutReviewSheet } from "../src/missed-workout/missed-workout-review-sheet";
 import { sessionScheduleNote } from "../src/plan/plan-session-schedule";
+import { longDayLabel } from "../src/missed-workout/missed-workout-flow";
+import { blockWeekLabel, todayMetaParts, weekStrip, type WeekStripView } from "../src/plan/week-presentation";
 import { EquipmentSheet } from "../src/equipment/equipment-sheet";
 import { EQUIPMENT_COPY, equipmentAdjustedCount, equipmentAdjustedLabel } from "../src/equipment/equipment-flow";
-import { colors, radius, spacing, touchTarget, typography } from "../src/design/tokens";
+import { semantic, spacing, type } from "../src/design/tokens";
+import { Icon } from "../src/ui/icon";
+import { PrimaryButton, SecondaryButton, StatusMarker, TextAction, TopGlow, UpdateCard, Wordmark } from "../src/ui/primitives";
 import { UnresolvedSyncMonitor, type UnresolvedSyncNotice } from "../src/workout/unresolved-sync-notice";
 
 /**
@@ -77,7 +81,8 @@ export default function TodayScreen(): React.JSX.Element {
   const [equipmentTarget, setEquipmentTarget] = useState<{ readonly plannedWorkoutId: string; readonly opening: number } | null>(null);
   const closeEquipmentSheet = useCallback(() => setEquipmentTarget(null), []);
   // The quiet "Equipment adjusted" line comes ONLY from the server's effective Workout Preview (never optimistic).
-  const [equipmentAdjusted, setEquipmentAdjusted] = useState<{ readonly plannedWorkoutId: string; readonly count: number } | null>(null);
+  // Design Integration 01: the same read also gives the hero its REAL exercise count ("5 exercises").
+  const [equipmentAdjusted, setEquipmentAdjusted] = useState<{ readonly plannedWorkoutId: string; readonly count: number; readonly exerciseCount: number } | null>(null);
   // Missed Workout V1 Slice D: an OPTIONAL, secondary adaptation flow. Its
   // preview is fetched independently of the overview (a failure never
   // touches the Hero), it never auto-applies, and a successful Apply only
@@ -198,14 +203,15 @@ export default function TodayScreen(): React.JSX.Element {
     planApplicationService
       .getWorkoutPreview(adjustableWorkoutId)
       .then((preview) => {
-        if (!cancelled) setEquipmentAdjusted({ plannedWorkoutId: adjustableWorkoutId, count: equipmentAdjustedCount(preview) });
+        if (!cancelled) setEquipmentAdjusted({ plannedWorkoutId: adjustableWorkoutId, count: equipmentAdjustedCount(preview), exerciseCount: preview.exercises.length });
       })
       .catch(() => logTechnicalFailure("today equipment state read failed"));
     return () => {
       cancelled = true;
     };
   }, [planApplicationService, adjustableWorkoutId, reloadToken]);
-  const equipmentLabel = equipmentAdjusted !== null && equipmentAdjusted.plannedWorkoutId === adjustableWorkoutId ? equipmentAdjustedLabel(equipmentAdjusted.count) : null;
+  const previewFacts = equipmentAdjusted !== null && equipmentAdjusted.plannedWorkoutId === adjustableWorkoutId ? equipmentAdjusted : null;
+  const equipmentLabel = previewFacts !== null ? equipmentAdjustedLabel(previewFacts.count) : null;
 
   const onStartWorkout = useCallback(
     async (session: PlanSessionSummaryV1) => {
@@ -235,12 +241,20 @@ export default function TodayScreen(): React.JSX.Element {
   const missedCard = heroState.kind === "completed-today" ? null : missedWorkoutCard(missedState);
   const guidedSetupItem = guidedSetupState.status === "ready" ? guidedSetupState.item : null;
 
+  const overview: PlanOverviewV1 | null = overviewState.status === "ready" ? overviewState.overview : null;
+  const strip = overview !== null && heroState.kind !== "no-plan" ? weekStrip(overview) : null;
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.screenTitle}>Today</Text>
+        <TopGlow />
+        <View style={styles.wordmarkRow}>
+          <Wordmark />
+        </View>
         <WorkoutHero
           heroState={heroState}
+          overview={overview}
+          exerciseCount={previewFacts?.exerciseCount ?? null}
           startState={startState}
           onStartWorkout={onStartWorkout}
           onResume={() => router.push("/active-workout")}
@@ -259,34 +273,37 @@ export default function TodayScreen(): React.JSX.Element {
           }
           equipmentLabel={equipmentLabel}
         />
-        {missedCard !== null ? (
-          <MissedWorkoutCard
-            card={missedCard}
-            onReview={() => missedController.openReview()}
-            onViewPlan={() => router.replace("/plan")}
-            onRetryTimeZone={() => void missedController.retryTimeZone()}
-          />
-        ) : null}
-        {/* The reserved composition point below the Hero (Today V1
-            Foundation) — a Progression Review card when one is
-            actionable, nothing otherwise. No empty placeholder card. */}
-        {pendingProgressionItem !== null ? (
-          <ProgressionReviewCard
-            item={pendingProgressionItem}
-            // applicationId is the ONLY navigation authority (Slice E final
-            // presentation-integrity gate, task §5) — Review Detail fetches
-            // its own canonical proposal and renders `proposal.
-            // exerciseDisplayName`; a navigation parameter is never treated
-            // as exercise-identity authority.
-            onReview={() => router.push(`/progression/${encodeURIComponent(pendingProgressionItem.applicationId)}`)}
-          />
-        ) : guidedSetupItem !== null ? (
-          <GuidedLoadingSetupCard
-            item={guidedSetupItem}
-            onSetUp={() => router.push(`/progression/${encodeURIComponent(guidedSetupItem.applicationId)}/loading-setup`)}
-          />
-        ) : null}
-        {syncNotice !== null ? <UnresolvedSyncNoticeView notice={syncNotice} /> : null}
+        <View style={styles.cards}>
+          {missedCard !== null ? (
+            <MissedWorkoutCard
+              card={missedCard}
+              onReview={() => missedController.openReview()}
+              onViewPlan={() => router.replace("/plan")}
+              onRetryTimeZone={() => void missedController.retryTimeZone()}
+            />
+          ) : null}
+          {/* The reserved composition point below the Hero (Today V1
+              Foundation) — a Progression Review card when one is
+              actionable, nothing otherwise. No empty placeholder card. */}
+          {pendingProgressionItem !== null ? (
+            <ProgressionReviewCard
+              item={pendingProgressionItem}
+              // applicationId is the ONLY navigation authority (Slice E final
+              // presentation-integrity gate, task §5) — Review Detail fetches
+              // its own canonical proposal and renders `proposal.
+              // exerciseDisplayName`; a navigation parameter is never treated
+              // as exercise-identity authority.
+              onReview={() => router.push(`/progression/${encodeURIComponent(pendingProgressionItem.applicationId)}`)}
+            />
+          ) : guidedSetupItem !== null ? (
+            <GuidedLoadingSetupCard
+              item={guidedSetupItem}
+              onSetUp={() => router.push(`/progression/${encodeURIComponent(guidedSetupItem.applicationId)}/loading-setup`)}
+            />
+          ) : null}
+          {syncNotice !== null ? <UnresolvedSyncNoticeView notice={syncNotice} /> : null}
+        </View>
+        {strip !== null ? <WeekStrip strip={strip} /> : null}
       </ScrollView>
       <BottomNav active="today" />
       {missedState.kind === "ROLL_FORWARD" && missedState.reviewOpen ? (
@@ -316,10 +333,15 @@ export default function TodayScreen(): React.JSX.Element {
   );
 }
 
-/** CC-03: informational only — no action, because no in-app resolve/retry action exists. */
+/**
+ * CC-03: informational only — no action, because no in-app resolve/retry
+ * action exists. Foundations §09 "Offline · saved locally": a hollow
+ * marker that states the consequence, never blocks.
+ */
 function UnresolvedSyncNoticeView({ notice }: { notice: UnresolvedSyncNotice }): React.JSX.Element {
   return (
     <View style={styles.syncNotice} accessibilityRole="text" accessibilityLiveRegion="polite">
+      <StatusMarker tone="offline" label="Not synced yet" />
       <Text style={styles.syncNoticeText}>{notice.message}</Text>
     </View>
   );
@@ -327,23 +349,15 @@ function UnresolvedSyncNoticeView({ notice }: { notice: UnresolvedSyncNotice }):
 
 function ProgressionReviewCard({ item, onReview }: { item: PendingProgressionApplicationV1; onReview: () => void }): React.JSX.Element {
   return (
-    <Pressable
-      onPress={onReview}
-      style={({ pressed }) => [styles.reviewCard, pressed && styles.reviewCardPressed]}
-      accessibilityRole="button"
-      accessibilityLabel={`Review progression change for ${item.exerciseDisplayName}`}
-    >
-      <Text style={styles.reviewMicroLabel}>TRAINING UPDATE</Text>
-      <Text style={styles.reviewTitle}>Progression ready</Text>
-      <Text style={styles.reviewExercise}>{item.exerciseDisplayName}</Text>
-      {item.proposalAvailable && item.resolverProposedLoad !== null ? (
-        <Text style={styles.reviewLoadLine}>
-          {formatLoad(item.currentEffectiveLoad)} → {formatLoad(item.resolverProposedLoad)}
-        </Text>
-      ) : null}
-      <Text style={styles.reviewSecondary}>You&apos;re ready to increase the load.</Text>
-      <Text style={styles.reviewCta}>Review Change</Text>
-    </Pressable>
+    <UpdateCard
+      tone="success"
+      eyebrow="Training update"
+      title={`Progression ready · ${item.exerciseDisplayName}`}
+      body="You're ready to increase the load."
+      detail={item.proposalAvailable && item.resolverProposedLoad !== null ? `${formatLoad(item.currentEffectiveLoad)} → ${formatLoad(item.resolverProposedLoad)}` : null}
+      actionLabel="Review change"
+      onAction={onReview}
+    />
   );
 }
 
@@ -355,22 +369,53 @@ function ProgressionReviewCard({ item, onReview }: { item: PendingProgressionApp
  */
 function GuidedLoadingSetupCard({ item, onSetUp }: { item: GuidedLoadingSetupAttentionV1; onSetUp: () => void }): React.JSX.Element {
   return (
-    <Pressable
-      onPress={onSetUp}
-      style={({ pressed }) => [styles.reviewCard, pressed && styles.reviewCardPressed]}
-      accessibilityRole="button"
-      accessibilityLabel={`Set up loading for ${item.exerciseDisplayName}`}
-    >
-      <Text style={styles.reviewMicroLabel}>SETUP NEEDED</Text>
-      <Text style={styles.reviewTitle}>Set loading for {item.exerciseDisplayName}</Text>
-      <Text style={styles.reviewSecondary}>Vostivo needs your gym&apos;s weight steps to apply this progression automatically.</Text>
-      <Text style={styles.reviewCta}>Set Up Loading</Text>
-    </Pressable>
+    <UpdateCard
+      tone="neutral"
+      eyebrow="Setup needed"
+      title={`Set loading for ${item.exerciseDisplayName}`}
+      body="Vostivo needs your gym's weight steps to apply this progression automatically."
+      actionLabel="Set up loading"
+      onAction={onSetUp}
+    />
+  );
+}
+
+/** Today Final "This week": a 2px rail + day + status word per training session (lime only for today). */
+function WeekStrip({ strip }: { strip: WeekStripView }): React.JSX.Element {
+  return (
+    <View style={styles.week} accessible accessibilityLabel={strip.accessibilityLabel}>
+      <View style={styles.weekHeader}>
+        <Text style={styles.weekEyebrow}>This week</Text>
+        <Text style={styles.weekSummary}>{strip.summary}</Text>
+      </View>
+      <View style={styles.weekColumns}>
+        {strip.days.map((day) => (
+          <View key={day.key} style={styles.weekColumn}>
+            <View style={[styles.weekRail, day.tone === "done" && styles.weekRailDone, day.tone === "today" && styles.weekRailToday]} />
+            <Text style={[styles.weekDay, day.tone === "done" && styles.weekDayDone, day.tone === "today" && styles.weekDayToday]}>{day.day}</Text>
+            <Text style={[styles.weekStatus, day.tone === "today" && styles.weekStatusToday, day.tone === "planned" && styles.weekStatusPlanned]} numberOfLines={1}>
+              {day.statusLabel}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function HeroEyebrow({ left, right }: { left: string; right: string | null }): React.JSX.Element {
+  return (
+    <View style={styles.eyebrowRow}>
+      <Text style={styles.heroEyebrow}>{left}</Text>
+      {right !== null ? <Text style={styles.heroWeek}>{right}</Text> : null}
+    </View>
   );
 }
 
 function WorkoutHero({
   heroState,
+  overview,
+  exerciseCount,
   startState,
   onStartWorkout,
   onResume,
@@ -382,6 +427,10 @@ function WorkoutHero({
   equipmentLabel,
 }: {
   heroState: ReturnType<typeof deriveTodayHeroState>;
+  /** The server overview (block week, athlete-local date) — `null` while loading / on error. */
+  overview: PlanOverviewV1 | null;
+  /** Real exercise count from today's effective Workout Preview, `null` until read. */
+  exerciseCount: number | null;
   startState: StartState;
   onStartWorkout: (session: PlanSessionSummaryV1) => void;
   onResume: () => void;
@@ -396,79 +445,92 @@ function WorkoutHero({
   /** "Equipment adjusted · N exercises" from the server's effective Workout Preview, or `null`. */
   equipmentLabel: string | null;
 }): React.JSX.Element {
+  const week = overview?.currentBlock != null && overview.schedule.displayedCycle === "CURRENT" ? blockWeekLabel(overview.currentBlock) : null;
   switch (heroState.kind) {
     case "loading":
       return (
-        <View style={[styles.heroCard, styles.heroCardSkeleton]}>
-          <Text style={styles.secondaryText}>Loading today&apos;s training…</Text>
+        <View style={styles.hero} accessible accessibilityLabel="Loading today's training" accessibilityState={{ busy: true }}>
+          <View style={[styles.skeleton, { width: "34%", height: 11 }]} />
+          <View style={[styles.skeleton, { width: "70%", height: 40 }]} />
+          <View style={[styles.skeleton, { width: "52%", height: 14 }]} />
+          <View style={[styles.skeleton, styles.skeletonCta]} />
         </View>
       );
 
     case "error":
       return (
-        <View style={styles.heroCard}>
-          <Text style={styles.heroTitle}>Could not load today</Text>
-          <Text style={styles.secondaryText}>{heroState.message}</Text>
-          <Pressable onPress={onRetry} style={styles.secondaryButton} accessibilityRole="button" accessibilityLabel="Retry">
-            <Text style={styles.secondaryButtonText}>Retry</Text>
-          </Pressable>
+        <View style={styles.hero}>
+          <HeroEyebrow left="Today" right={null} />
+          <Text style={styles.heroTitleSmall}>Could not load today</Text>
+          <Text style={styles.heroBody}>Check your connection and try again. Anything you logged is saved on this phone.</Text>
+          {__DEV__ ? <Text style={styles.heroDebug}>{heroState.message}</Text> : null}
+          <View style={styles.ctaWrap}>
+            <SecondaryButton label="Try again" onPress={onRetry} accessibilityLabel="Retry" />
+          </View>
         </View>
       );
 
     case "resume":
       return (
-        <View style={[styles.heroCard, styles.heroCardActive]}>
-          <Text style={styles.heroMicroLabel}>IN PROGRESS</Text>
+        <View style={styles.hero}>
+          <HeroEyebrow left="In progress" right={week} />
           <Text style={styles.heroTitle}>Workout in progress</Text>
-          <Pressable onPress={onResume} style={styles.primaryButton} accessibilityRole="button" accessibilityLabel="Resume Workout">
-            <Text style={styles.primaryButtonText}>Resume Workout</Text>
-          </Pressable>
+          <Text style={styles.heroBody}>Your sets are saved on this phone. Pick up where you left off.</Text>
+          <View style={styles.ctaWrap}>
+            <PrimaryButton label="Resume workout" onPress={onResume} accessibilityLabel="Resume Workout" />
+          </View>
         </View>
       );
 
     case "no-plan":
       return (
-        <View style={styles.heroCard}>
-          <Text style={styles.heroTitle}>No active training plan</Text>
-          <Text style={styles.secondaryText}>Get a Vostivo plan to see today&apos;s training here.</Text>
-          <Pressable onPress={onViewPlan} style={styles.secondaryButton} accessibilityRole="button" accessibilityLabel="View Plan">
-            <Text style={styles.secondaryButtonText}>View Plan</Text>
-          </Pressable>
+        <View style={styles.hero}>
+          <HeroEyebrow left="Today" right={null} />
+          <Text style={styles.heroTitleSmall}>No active training plan</Text>
+          <Text style={styles.heroBody}>Get a Vostivo plan to see today&apos;s training here.</Text>
+          <View style={styles.ctaWrap}>
+            <SecondaryButton label="View plan" onPress={onViewPlan} accessibilityLabel="View Plan" />
+          </View>
         </View>
       );
 
-    case "rest":
+    case "rest": {
+      const today = overview?.athleteLocalDate ?? null;
       return (
-        <View style={styles.heroCard}>
-          <Text style={styles.heroMicroLabel}>TODAY</Text>
+        <View style={styles.hero}>
+          <HeroEyebrow left={today !== null ? longDayLabel(today, today) : "Today"} right={week} />
           <Text style={styles.heroTitle}>Rest day</Text>
-          <Text style={styles.secondaryText}>Everything is on track.</Text>
+          <Text style={styles.heroBody}>No workout is planned for today.</Text>
           {heroState.nextWorkout !== null ? (
-            <View style={styles.nextWorkoutRow}>
-              <Text style={styles.nextWorkoutLabel}>Next workout</Text>
-              <Text style={styles.nextWorkoutName}>{heroState.nextWorkout.name}</Text>
+            <View style={styles.nextRow}>
+              <Text style={styles.nextLabel}>Next workout</Text>
+              <Text style={styles.nextName}>{heroState.nextWorkout.name}</Text>
             </View>
           ) : null}
         </View>
       );
+    }
 
     case "completed-today": {
       // Slice D: calm, no primary training action left — only the history of what was done.
       const view = completedTodayView(heroState.completed, heroState.nextWorkout);
       return (
-        <View style={styles.heroCard}>
-          <View accessible accessibilityLabel={view.accessibilityLabel} style={styles.completedSummary}>
-            <Text style={styles.heroMicroLabel}>{view.microLabel}</Text>
+        <View style={styles.hero}>
+          <View accessible accessibilityLabel={view.accessibilityLabel} style={styles.heroStack}>
+            <HeroEyebrow left={view.microLabel} right={week} />
             <Text style={styles.heroTitle}>{view.title}</Text>
-            <Text style={styles.secondaryText}>{view.body}</Text>
+            <View style={styles.metaRow}>
+              <Icon name="check" size={15} strokeWidth={2} color={semantic.successMarker} />
+              <Text style={styles.metaFocus}>{view.body}</Text>
+            </View>
           </View>
-          <Pressable onPress={() => onViewWorkout(view.viewWorkoutHref)} style={styles.secondaryButton} accessibilityRole="button" accessibilityLabel="View completed workout">
-            <Text style={styles.secondaryButtonText}>{view.viewWorkoutLabel}</Text>
-          </Pressable>
+          <View style={styles.ctaWrap}>
+            <SecondaryButton label={view.viewWorkoutLabel} onPress={() => onViewWorkout(view.viewWorkoutHref)} accessibilityLabel="View completed workout" />
+          </View>
           {view.next !== null ? (
-            <View style={styles.nextWorkoutRow}>
-              <Text style={styles.nextWorkoutLabel}>Next</Text>
-              <Text style={styles.nextWorkoutName}>{view.next}</Text>
+            <View style={styles.nextRow}>
+              <Text style={styles.nextLabel}>Next</Text>
+              <Text style={styles.nextName}>{view.next}</Text>
             </View>
           ) : null}
         </View>
@@ -480,55 +542,60 @@ function WorkoutHero({
       const isStarting = startState.status === "starting";
       // Missed Workout Slice D: a rolled-forward workout shows its authored day as quiet context only.
       const scheduleNote = sessionScheduleNote(session);
+      const meta = todayMetaParts(session, exerciseCount);
+      const weekday = session.scheduledDate !== null ? longDayLabel(session.scheduledDate, overview?.athleteLocalDate ?? null) : "Today";
       return (
-        <View style={[styles.heroCard, styles.heroCardActive]}>
-          <Text style={styles.heroMicroLabel}>TODAY</Text>
-          <Text style={styles.heroTitle}>{session.name}</Text>
-          {session.focus !== null ? <Text style={styles.heroFocus}>{session.focus}</Text> : null}
-          {scheduleNote.kind === "ADJUSTED" && scheduleNote.originally !== null ? <Text style={styles.heroDuration}>{scheduleNote.originally}</Text> : null}
-          {session.estimatedDurationMinutes !== null || onAdjustTime !== null || onEquipment !== null ? (
-            <View style={styles.heroMetaRow}>
-              {session.estimatedDurationMinutes !== null ? <Text style={styles.heroDuration}>{session.estimatedDurationMinutes} min</Text> : null}
+        <View style={styles.hero}>
+          <HeroEyebrow left={weekday} right={week} />
+          <Text style={styles.heroTitle} accessibilityRole="header">
+            {session.name}
+          </Text>
+          {meta.focus !== null || meta.details.length > 0 ? (
+            <View style={styles.metaRow}>
+              {meta.focus !== null ? <Text style={styles.metaFocus}>{meta.focus}</Text> : null}
+              {meta.details.map((detail, index) => (
+                <View key={detail} style={styles.metaPart}>
+                  {index > 0 || meta.focus !== null ? <View style={styles.metaDot} /> : null}
+                  <Text style={styles.metaDetail}>{detail}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+          {scheduleNote.kind === "ADJUSTED" && scheduleNote.originally !== null ? <Text style={styles.metaDetail}>{scheduleNote.originally}</Text> : null}
+          {equipmentLabel !== null ? <Text style={styles.metaDetail}>{equipmentLabel}</Text> : null}
+          {onAdjustTime !== null || onEquipment !== null ? (
+            <View style={styles.linksRow}>
               {onAdjustTime !== null ? (
-                <Pressable
+                <TextAction
+                  label="Adjust time"
                   onPress={onAdjustTime}
                   disabled={isStarting}
-                  hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-                  style={styles.adjustTimeLink}
-                  accessibilityRole="button"
+                  underline
+                  leading={<Icon name="clock" size={14} strokeWidth={1.7} color={semantic.textMuted} />}
                   accessibilityLabel="Adjust workout time"
-                  accessibilityState={{ disabled: isStarting }}
-                >
-                  <Text style={styles.adjustTimeLinkText}>Adjust time</Text>
-                </Pressable>
+                />
               ) : null}
               {onEquipment !== null ? (
-                <Pressable
+                <TextAction
+                  label={EQUIPMENT_COPY.todayAction}
                   onPress={onEquipment}
                   disabled={isStarting}
-                  hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-                  style={styles.adjustTimeLink}
-                  accessibilityRole="button"
+                  underline
+                  leading={<Icon name="equipment" size={14} strokeWidth={1.7} color={semantic.textMuted} />}
                   accessibilityLabel="Equipment available today"
-                  accessibilityState={{ disabled: isStarting }}
-                >
-                  <Text style={styles.adjustTimeLinkText}>{EQUIPMENT_COPY.todayAction}</Text>
-                </Pressable>
+                />
               ) : null}
             </View>
           ) : null}
-          {equipmentLabel !== null ? <Text style={styles.heroDuration}>{equipmentLabel}</Text> : null}
-          {startState.status === "error" ? <Text style={styles.errorText}>{startState.message}</Text> : null}
-          <Pressable
-            disabled={isStarting}
-            onPress={() => onStartWorkout(session)}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed, isStarting && styles.primaryButtonDisabled]}
-            accessibilityRole="button"
-            accessibilityLabel="Start Workout"
-            accessibilityState={{ disabled: isStarting, busy: isStarting }}
-          >
-            <Text style={styles.primaryButtonText}>{isStarting ? "Starting…" : "Start Workout"}</Text>
-          </Pressable>
+          <View style={styles.ctaWrap}>
+            {startState.status === "error" ? <Text style={styles.errorText}>{startState.message}</Text> : null}
+            <PrimaryButton
+              label={isStarting ? "Starting…" : "Start workout"}
+              onPress={() => onStartWorkout(session)}
+              loading={isStarting}
+              accessibilityLabel="Start Workout"
+            />
+          </View>
         </View>
       );
     }
@@ -536,80 +603,49 @@ function WorkoutHero({
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.background },
-  scrollContent: { flexGrow: 1, paddingBottom: spacing.xl },
-  screenTitle: { ...typography.title, color: colors.textPrimary, paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm },
-  secondaryText: { ...typography.body, color: colors.textSecondary },
-  errorText: { ...typography.body, color: colors.danger },
-  heroCard: {
-    marginHorizontal: spacing.lg,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    gap: spacing.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  heroCardActive: { borderColor: colors.signal },
-  heroCardSkeleton: { opacity: 0.6 },
-  completedSummary: { gap: spacing.sm },
-  heroMicroLabel: { ...typography.tiny, color: colors.textTertiary, textTransform: "uppercase" },
-  heroTitle: { ...typography.title, color: colors.textPrimary },
-  heroFocus: { ...typography.body, color: colors.textSecondary },
-  heroDuration: { ...typography.caption, color: colors.textTertiary },
-  heroMetaRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  // Visually quiet, but a full touch target (minHeight + hitSlop).
-  adjustTimeLink: { minHeight: touchTarget.minHeight, justifyContent: "center" },
-  adjustTimeLinkText: { ...typography.caption, color: colors.textSecondary, textDecorationLine: "underline" },
-  nextWorkoutRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.xs },
-  nextWorkoutLabel: { ...typography.caption, color: colors.textTertiary },
-  nextWorkoutName: { ...typography.bodyStrong, color: colors.textPrimary },
-  primaryButton: {
-    backgroundColor: colors.signal,
-    borderRadius: radius.pill,
-    minHeight: touchTarget.minHeight,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: spacing.xs,
-  },
-  primaryButtonPressed: { opacity: 0.85 },
-  primaryButtonDisabled: { opacity: 0.6 },
-  primaryButtonText: { ...typography.bodyStrong, color: colors.signalText },
-  secondaryButton: {
-    alignSelf: "flex-start",
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: radius.pill,
-    minHeight: touchTarget.minHeight,
-    paddingHorizontal: spacing.lg,
-    justifyContent: "center",
-    marginTop: spacing.xs,
-  },
-  secondaryButtonText: { ...typography.bodyStrong, color: colors.textPrimary },
-  reviewCard: {
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.lg,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    gap: 2,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  reviewCardPressed: { opacity: 0.85 },
-  reviewMicroLabel: { ...typography.tiny, color: colors.textTertiary, textTransform: "uppercase" },
-  reviewTitle: { ...typography.heading, color: colors.textPrimary, marginTop: spacing.xs },
-  reviewExercise: { ...typography.bodyStrong, color: colors.textPrimary, marginTop: spacing.xs },
-  reviewLoadLine: { ...typography.body, color: colors.signal },
-  reviewSecondary: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
-  reviewCta: { ...typography.bodyStrong, color: colors.signal, marginTop: spacing.sm },
-  syncNotice: {
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.lg,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  syncNoticeText: { ...typography.caption, color: colors.textSecondary },
+  safeArea: { flex: 1, backgroundColor: semantic.bgApp },
+  scrollContent: { flexGrow: 1, paddingHorizontal: spacing.screenGutter },
+  wordmarkRow: { paddingTop: spacing.xl },
+  hero: { paddingTop: spacing.s40, gap: 13 },
+  heroStack: { gap: 13 },
+  eyebrowRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
+  heroEyebrow: { ...type.eyebrow, color: semantic.textMuted },
+  heroWeek: { ...type.eyebrow, fontWeight: "500", letterSpacing: 1.76, color: semantic.textMuted, fontVariant: ["tabular-nums"] },
+  heroTitle: { ...type.display, color: semantic.textPrimary },
+  heroTitleSmall: { ...type.pageTitle, color: semantic.textPrimary },
+  heroBody: { ...type.body, color: semantic.textMuted },
+  heroDebug: { ...type.labelValue, color: semantic.textDisabled },
+  metaRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: 9, rowGap: 4 },
+  metaPart: { flexDirection: "row", alignItems: "center", gap: 9 },
+  metaFocus: { ...type.rowTitle, color: "#DCE2E5" },
+  metaDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: semantic.ornamentDot },
+  metaDetail: { ...type.body, color: semantic.textMuted, fontVariant: ["tabular-nums"] },
+  linksRow: { flexDirection: "row", flexWrap: "wrap", columnGap: spacing.s20, marginTop: -4 },
+  ctaWrap: { paddingTop: 17, gap: spacing.md },
+  errorText: { ...type.body, color: semantic.critical },
+  nextRow: { flexDirection: "row", alignItems: "baseline", gap: spacing.sm, paddingTop: spacing.sm },
+  nextLabel: { ...type.microLabel, color: semantic.textMuted },
+  nextName: { ...type.bodyStrong, color: semantic.textSecondary },
+  skeleton: { borderRadius: 8, backgroundColor: semantic.surfaceInteractive },
+  skeletonCta: { width: "100%", height: 60, borderRadius: 14, marginTop: 17 },
+
+  cards: { paddingTop: spacing.lg, gap: spacing.md },
+  syncNotice: { gap: 6, paddingVertical: spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: semantic.borderHairline },
+  syncNoticeText: { ...type.body, color: semantic.textTertiary },
+
+  week: { marginTop: "auto", paddingTop: spacing.xxl, paddingBottom: spacing.xl, gap: spacing.md },
+  weekHeader: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
+  weekEyebrow: { ...type.microLabel, color: semantic.textMuted },
+  weekSummary: { ...type.labelValue, fontSize: 11, color: semantic.textMuted, fontVariant: ["tabular-nums"] },
+  weekColumns: { flexDirection: "row", gap: 9 },
+  weekColumn: { flex: 1, gap: 7 },
+  weekRail: { height: 2, borderRadius: 1, backgroundColor: "#22272A" },
+  weekRailDone: { backgroundColor: "#5A6268" },
+  weekRailToday: { backgroundColor: semantic.signal },
+  weekDay: { ...type.bodyStrong, fontSize: 12, color: semantic.textMuted },
+  weekDayDone: { color: semantic.textSecondary },
+  weekDayToday: { color: "#F6F8F7" },
+  weekStatus: { ...type.labelValue, fontSize: 10, color: semantic.textMuted },
+  weekStatusToday: { fontWeight: "600", color: semantic.signal },
+  weekStatusPlanned: { color: semantic.textMuted },
 });

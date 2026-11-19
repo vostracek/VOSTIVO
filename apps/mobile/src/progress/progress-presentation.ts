@@ -277,3 +277,26 @@ export function formatLocalDay(isoDate: string): string {
 function uniqueInOrder(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
+
+export interface ComparisonBarsView {
+  readonly previousLabel: string;
+  readonly currentLabel: string;
+  /** 0..1 of the larger value — same scale for both bars (Foundations §13). */
+  readonly previousRatio: number;
+  readonly currentRatio: number;
+}
+
+/**
+ * Athlete Design Integration 01 — the approved Progress canvas's
+ * comparison bar for one applied progression: the previous prescribed load
+ * vs. the load applied now. Only the two real loads of the server's
+ * improvement, on one scale; `null` (bars hidden, the text change stays)
+ * when units differ or a value is not positive — never a guessed scale.
+ */
+export function comparisonBars(item: Pick<ProgressImprovementV1, "fromLoad" | "toLoad">): ComparisonBarsView | null {
+  const from = item.fromLoad.amountMilli;
+  const to = item.toLoad.amountMilli;
+  if (item.fromLoad.unit !== item.toLoad.unit || from <= 0 || to <= 0) return null;
+  const max = Math.max(from, to);
+  return { previousLabel: formatLoad(item.fromLoad), currentLabel: formatLoad(item.toLoad), previousRatio: from / max, currentRatio: to / max };
+}

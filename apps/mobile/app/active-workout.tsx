@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import type { ExternalWeightLoad, PrescribedExerciseV1, PrescribedSetV1 } from "@vostivo/domain";
 import { useAthleteRuntime } from "../src/identity/athlete-runtime-context";
@@ -26,12 +26,13 @@ import { adjustedSessionLabel } from "../src/available-time/available-time-flow"
 import { computeElapsedSeconds, formatElapsedDuration } from "../src/workout/elapsed-time";
 import { computeRemainingSeconds, isRestTimerFinished, resolveRestDuration } from "../src/workout/rest-timer";
 import { formatLoad, formatPreviousSet, formatRepTarget } from "../src/workout/format-target";
-import { previousPerformanceRefs, previousSetsFor, resolvePrefill } from "../src/workout/active-workout-presentation";
+import { exerciseSetSummary, previousPerformanceRefs, previousSetsFor, resolvePrefill } from "../src/workout/active-workout-presentation";
 import { loadToAmountMilli, parseLoadInput, parseRepsInput } from "../src/workout/numeric-input";
 import { createFinishGuard } from "../src/workout/finish-guard";
 import { createDraftDebouncer, upsertSetDraft, type DraftDebouncer } from "../src/workout/set-draft";
 import { createInFlightGuard, setActionKey } from "../src/workout/in-flight-guard";
-import { colors, radius, spacing, touchTarget, typography } from "../src/design/tokens";
+import { colors, radius, semantic, spacing, touchTarget, type, typography } from "../src/design/tokens";
+import { Eyebrow, PrimaryButton, SecondaryButton, StateMessage, TopGlow } from "../src/ui/primitives";
 
 /**
  * Active Workout Core Logger V1 — the real gym logging experience.
@@ -45,6 +46,13 @@ import { colors, radius, spacing, touchTarget, typography } from "../src/design/
  * canvas (RIR/engine-note/Swap/Pain omitted as deferred features; future
  * sets stay individually completable rather than becoming read-only, to
  * avoid regressing existing out-of-order logging).
+ *
+ * Athlete Design Integration 01 (presentation only): Archivo via the
+ * Foundations tokens, the canvas's rest row grouping (REST time + rail,
+ * −15 | +15 on the right), the "3 × 8–12" set summary when every working
+ * set shares one target, and Foundations primary/secondary buttons for the
+ * non-logging states (no lime fills). Logging, guards, drafts, sync and
+ * finish paths are untouched.
  *
  * `getActiveWorkoutSession()` is the ONLY authoritative source on mount
  * (spec section 4) — this screen never fabricates workout data, and
@@ -176,7 +184,9 @@ export default function ActiveWorkoutScreen(): React.JSX.Element {
   if (state.status === "loading") {
     return (
       <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-        <Text style={styles.secondaryText}>Loading active session…</Text>
+        <View style={styles.stateWrap} accessible accessibilityLabel="Loading active session" accessibilityState={{ busy: true }}>
+          <Text style={styles.secondaryText}>Loading active session…</Text>
+        </View>
       </SafeAreaView>
     );
   }
@@ -184,17 +194,10 @@ export default function ActiveWorkoutScreen(): React.JSX.Element {
   if (state.status === "no-session") {
     return (
       <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-        <View style={styles.centeredContent}>
-          <Text style={styles.title}>No active workout</Text>
-          <Text style={styles.secondaryText}>Start a workout from Today to begin logging.</Text>
-          <Pressable
-            onPress={() => router.replace("/")}
-            style={styles.primaryButton}
-            accessibilityRole="button"
-            accessibilityLabel="Back to Today"
-          >
-            <Text style={styles.primaryButtonText}>Back to Today</Text>
-          </Pressable>
+        <View style={styles.stateWrap}>
+          <StateMessage title="No active workout" body="Start a workout from Today to begin logging.">
+            <SecondaryButton label="Back to Today" onPress={() => router.replace("/")} />
+          </StateMessage>
         </View>
       </SafeAreaView>
     );
@@ -203,17 +206,11 @@ export default function ActiveWorkoutScreen(): React.JSX.Element {
   if (state.status === "error") {
     return (
       <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-        <View style={styles.centeredContent}>
-          <Text style={styles.title}>Something went wrong</Text>
-          <Text style={styles.errorText}>{state.message}</Text>
-          <Pressable
-            onPress={() => router.replace("/")}
-            style={styles.primaryButton}
-            accessibilityRole="button"
-            accessibilityLabel="Back to Today"
-          >
-            <Text style={styles.primaryButtonText}>Back to Today</Text>
-          </Pressable>
+        <View style={styles.stateWrap}>
+          <StateMessage title="Couldn't open this workout" body="Everything you logged is saved on this phone.">
+            {__DEV__ ? <Text style={styles.errorText}>{state.message}</Text> : null}
+            <SecondaryButton label="Back to Today" onPress={() => router.replace("/")} />
+          </StateMessage>
         </View>
       </SafeAreaView>
     );
@@ -351,14 +348,7 @@ export default function ActiveWorkoutScreen(): React.JSX.Element {
           {allSetsComplete ? (
             <View style={styles.allCompleteFinishWrap}>
               <Text style={styles.allCompleteFinishLabel}>Every planned set is logged.</Text>
-              <Pressable
-                onPress={onTapFinish}
-                style={styles.allCompleteFinishButton}
-                accessibilityRole="button"
-                accessibilityLabel="Finish workout"
-              >
-                <Text style={styles.allCompleteFinishButtonText}>Finish Workout</Text>
-              </Pressable>
+              <PrimaryButton label="Finish workout" onPress={onTapFinish} accessibilityLabel="Finish workout" />
             </View>
           ) : null}
         </ScrollView>
@@ -460,14 +450,6 @@ function WorkoutHeader({
 
       {session.restTimer !== null ? (
         <View style={styles.restTimerRow}>
-          <Pressable
-            onPress={() => onAdjustRest(-15)}
-            style={styles.restAdjustButton}
-            accessibilityRole="button"
-            accessibilityLabel="Subtract 15 seconds from rest"
-          >
-            <Text style={styles.restAdjustText}>−15s</Text>
-          </Pressable>
           <View style={styles.restCenterBlock}>
             <Text style={styles.restEyebrow}>Rest</Text>
             <Text style={[styles.restTimeText, restFinished && styles.restTimeTextDone]} accessibilityLabel={restFinished ? "Rest finished" : `${remainingRestSeconds} seconds of rest remaining`}>
@@ -478,12 +460,21 @@ function WorkoutHeader({
             <View style={[styles.restTrackFill, { width: `${restFinished ? 0 : restProgress * 100}%` }]} />
           </View>
           <Pressable
+            onPress={() => onAdjustRest(-15)}
+            style={styles.restAdjustButton}
+            accessibilityRole="button"
+            accessibilityLabel="Subtract 15 seconds from rest"
+          >
+            <Text style={styles.restAdjustText}>−15</Text>
+          </Pressable>
+          <View style={styles.restAdjustDivider} />
+          <Pressable
             onPress={() => onAdjustRest(15)}
             style={styles.restAdjustButton}
             accessibilityRole="button"
             accessibilityLabel="Add 15 seconds to rest"
           >
-            <Text style={styles.restAdjustText}>+15s</Text>
+            <Text style={styles.restAdjustText}>+15</Text>
           </Pressable>
         </View>
       ) : null}
@@ -583,10 +574,14 @@ function ExerciseCard({
     performedExercise?.sets.find((s) => s.prescriptionSetId === plannedSet.prescriptionSetId)?.completionState === "COMPLETED";
   const firstIncompleteSet = plannedExercise.sets.find((s) => !isSetComplete(s));
   const todayTargetSet = firstIncompleteSet ?? plannedExercise.sets[plannedExercise.sets.length - 1];
+  const setSummary = exerciseSetSummary(plannedExercise);
 
   return (
     <View style={styles.exerciseFocusBlock}>
-      <Text style={styles.exerciseTitle}>{plannedExercise.displayName}</Text>
+      <Text style={styles.exerciseTitle} accessibilityRole="header">
+        {plannedExercise.displayName}
+      </Text>
+      {setSummary !== null ? <Text style={styles.setSummary}>{setSummary}</Text> : null}
 
       {todayTargetSet !== undefined ? (
         <View style={styles.todayRow}>
@@ -849,20 +844,20 @@ function SetRow({
 }
 
 function FinishConfirmSheet({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }): React.JSX.Element {
+  // The overlay is absolutely positioned, so it ignores the screen's SafeAreaView
+  // padding: clear the Android navigation bar / home indicator explicitly.
+  const insets = useSafeAreaInsets();
   return (
     <View style={styles.sheetOverlay}>
-      <View style={styles.sheet}>
+      <LinearGradient colors={["#16191C", "#111416"]} style={[styles.sheet, { paddingBottom: spacing.xl + insets.bottom }]}>
+        <View style={styles.sheetGrabber} />
         <Text style={styles.sheetTitle}>Finish with sets remaining?</Text>
-        <Text style={styles.secondaryText}>Not every planned set is complete yet. You can still finish now.</Text>
+        <Text style={styles.sheetBody}>Not every planned set is complete yet. You can still finish now.</Text>
         <View style={styles.sheetActions}>
-          <Pressable onPress={onCancel} style={styles.sheetSecondaryButton} accessibilityRole="button" accessibilityLabel="Keep logging">
-            <Text style={styles.sheetSecondaryButtonText}>Keep logging</Text>
-          </Pressable>
-          <Pressable onPress={onConfirm} style={styles.sheetPrimaryButton} accessibilityRole="button" accessibilityLabel="Finish anyway">
-            <Text style={styles.sheetPrimaryButtonText}>Finish anyway</Text>
-          </Pressable>
+          <SecondaryButton label="Keep logging" onPress={onCancel} style={styles.flex} />
+          <SecondaryButton label="Finish anyway" onPress={onConfirm} style={styles.flex} />
         </View>
-      </View>
+      </LinearGradient>
     </View>
   );
 }
@@ -870,24 +865,26 @@ function FinishConfirmSheet({ onCancel, onConfirm }: { onCancel: () => void; onC
 function SummaryView({ summary, onDone }: { summary: WorkoutSummary; onDone: () => void }): React.JSX.Element {
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <View style={styles.centeredContent}>
-        <Text style={styles.title}>Workout complete</Text>
-        <Text style={styles.summaryWorkoutName}>{summary.workoutName}</Text>
-        <View style={styles.summaryStatsRow}>
-          <View style={styles.summaryStat}>
-            <Text style={styles.summaryStatValue}>{formatElapsedDuration(summary.durationSeconds)}</Text>
-            <Text style={styles.summaryStatLabel}>Duration</Text>
-          </View>
-          <View style={styles.summaryStat}>
-            <Text style={styles.summaryStatValue}>
-              {summary.completedWorkingSets}/{summary.totalPlannedSets}
-            </Text>
-            <Text style={styles.summaryStatLabel}>Sets completed</Text>
+      <TopGlow />
+      <View style={styles.summaryContent}>
+        <View style={styles.summaryTop} accessible accessibilityLabel={`Workout complete: ${summary.workoutName}. Duration ${formatElapsedDuration(summary.durationSeconds)}. ${summary.completedWorkingSets} of ${summary.totalPlannedSets} sets completed.`}>
+          <Eyebrow>Workout complete</Eyebrow>
+          <Text style={styles.summaryWorkoutName}>{summary.workoutName}</Text>
+          <Text style={styles.summaryNote}>Saved on this phone. It syncs automatically.</Text>
+          <View style={styles.summaryTable}>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryStatLabel}>Duration</Text>
+              <Text style={styles.summaryStatValue}>{formatElapsedDuration(summary.durationSeconds)}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryStatLabel}>Sets completed</Text>
+              <Text style={styles.summaryStatValue}>
+                {summary.completedWorkingSets}/{summary.totalPlannedSets}
+              </Text>
+            </View>
           </View>
         </View>
-        <Pressable onPress={onDone} style={styles.primaryButton} accessibilityRole="button" accessibilityLabel="Back to Today">
-          <Text style={styles.primaryButtonText}>Back to Today</Text>
-        </Pressable>
+        <PrimaryButton label="Back to Today" onPress={onDone} accessibilityLabel="Back to Today" />
       </View>
     </SafeAreaView>
   );
@@ -897,6 +894,23 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   safeArea: { flex: 1, backgroundColor: colors.background },
   centeredContent: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md, paddingHorizontal: spacing.xl },
+  stateWrap: { flex: 1, justifyContent: "center", paddingHorizontal: spacing.screenGutter },
+  setSummary: { ...type.numericSmall, fontWeight: "500", color: semantic.textTertiary, marginTop: -2 },
+  restAdjustDivider: { width: StyleSheet.hairlineWidth, height: 18, backgroundColor: semantic.borderMicro },
+  sheetGrabber: { alignSelf: "center", width: 36, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.14)", marginBottom: spacing.sm },
+  sheetBody: { ...type.body, color: semantic.textMuted },
+  summaryContent: { flex: 1, justifyContent: "space-between", paddingHorizontal: spacing.screenGutter, paddingTop: spacing.s56, paddingBottom: spacing.xl },
+  summaryTop: { gap: 13 },
+  summaryNote: { ...type.body, color: semantic.textMuted },
+  summaryTable: { marginTop: spacing.xl },
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    paddingVertical: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: semantic.borderHairline,
+  },
   title: { ...typography.title, color: colors.textPrimary },
   secondaryText: { ...typography.body, color: colors.textSecondary, textAlign: "center" },
   errorText: { ...typography.body, color: colors.danger, textAlign: "center" },
@@ -951,11 +965,11 @@ const styles = StyleSheet.create({
     borderColor: colors.awBorderHairline,
     paddingVertical: 3,
   },
-  restAdjustButton: { minHeight: touchTarget.minHeight, minWidth: 44, alignItems: "center", justifyContent: "center" },
+  restAdjustButton: { minHeight: touchTarget.minHeight, minWidth: 40, alignItems: "center", justifyContent: "center" },
   restAdjustText: { ...typography.awLabelValue, color: colors.awTextSecondary },
   restCenterBlock: { flexDirection: "row", alignItems: "baseline", gap: spacing.xs },
   restEyebrow: { ...typography.awMicroLabel, color: colors.awTextFaint },
-  restTimeText: { fontSize: 18, fontWeight: "700", letterSpacing: -0.2, color: colors.awTextPrimary },
+  restTimeText: { ...type.numeric, fontSize: 18, fontWeight: "700", letterSpacing: -0.2, color: colors.awTextPrimary },
   restTimeTextDone: { fontWeight: "600", color: colors.awTextDisabled },
   restTrack: { flex: 1, height: 2, borderRadius: 1, backgroundColor: "#1A1E21", overflow: "hidden" },
   restTrackFill: { height: 2, borderRadius: 1, backgroundColor: colors.awTextDisabled },
@@ -1089,8 +1103,8 @@ const styles = StyleSheet.create({
   // row — this is the sole, clearly visible replacement, reusing the
   // exact same canonical finish path as the header's icon-only Finish
   // button (`onTapFinish`), never a second completion mechanism.
-  allCompleteFinishWrap: { marginTop: spacing.xl, alignItems: "center", gap: spacing.md },
-  allCompleteFinishLabel: { ...typography.body, color: colors.awTextSecondary, textAlign: "center" },
+  allCompleteFinishWrap: { marginTop: spacing.xl, alignItems: "stretch", gap: spacing.md },
+  allCompleteFinishLabel: { ...type.body, color: colors.awTextSecondary, textAlign: "center" },
   allCompleteFinishButton: {
     alignSelf: "stretch",
     backgroundColor: colors.signal,
@@ -1125,17 +1139,20 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: semantic.scrim,
     justifyContent: "flex-end",
   },
   sheet: {
-    backgroundColor: colors.awSurfacePanel,
-    borderTopLeftRadius: radius.awSurface,
-    borderTopRightRadius: radius.awSurface,
-    padding: spacing.xl,
+    borderTopLeftRadius: radius.sheet,
+    borderTopRightRadius: radius.sheet,
+    borderTopWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: spacing.screenGutter,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
     gap: spacing.md,
   },
-  sheetTitle: { ...typography.heading, color: colors.awTextPrimary },
+  sheetTitle: { ...type.sessionTitle, color: colors.awTextPrimary },
   sheetActions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.sm },
   sheetSecondaryButton: {
     flex: 1,
@@ -1157,9 +1174,9 @@ const styles = StyleSheet.create({
   },
   sheetPrimaryButtonText: { ...typography.awLabelValue, color: colors.signalText },
 
-  summaryWorkoutName: { ...typography.body, color: colors.textSecondary },
+  summaryWorkoutName: { ...type.display, fontSize: 34, lineHeight: 37, color: semantic.textPrimary },
   summaryStatsRow: { flexDirection: "row", gap: spacing.xxl, marginVertical: spacing.lg },
   summaryStat: { alignItems: "center", gap: spacing.xs },
-  summaryStatValue: { ...typography.title, color: colors.textPrimary },
-  summaryStatLabel: { ...typography.caption, color: colors.textSecondary },
+  summaryStatValue: { ...type.numeric, color: semantic.textPrimary },
+  summaryStatLabel: { ...type.body, color: semantic.textMuted },
 });
