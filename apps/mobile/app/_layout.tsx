@@ -1,5 +1,6 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { semantic } from "../src/design/tokens";
 import { installDomainIdGenerator } from "../src/infrastructure/domain-id-generator";
 import { IdentityGate } from "../src/identity/identity-gate";
 
@@ -20,9 +21,12 @@ installDomainIdGenerator();
 export default function RootLayout() {
   return (
     <>
-      <StatusBar style="auto" />
+      {/* The app renders the dark Foundations V1 theme in every appearance (no
+          approved light layer yet — see src/design/tokens.ts), so the status
+          bar content is always light. */}
+      <StatusBar style="light" />
       <IdentityGate>
-        <Stack screenOptions={{ headerShown: false }} />
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: semantic.bgApp } }} />
       </IdentityGate>
     </>
   );

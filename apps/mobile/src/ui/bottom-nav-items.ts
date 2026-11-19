@@ -7,13 +7,15 @@ export type NavTarget = "today" | "plan" | "progress";
 export interface NavItem {
   readonly label: string;
   readonly target: NavTarget | null;
+  /** Approved nav glyph (Foundations §10 / Today Final canvas). */
+  readonly icon: "today" | "plan" | "progress" | "profile";
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { label: "Today", target: "today" },
-  { label: "Plan", target: "plan" },
-  { label: "Progress", target: "progress" },
-  { label: "Profile", target: null },
+  { label: "Today", target: "today", icon: "today" },
+  { label: "Plan", target: "plan", icon: "plan" },
+  { label: "Progress", target: "progress", icon: "progress" },
+  { label: "Profile", target: null, icon: "profile" },
 ];
 
 export const ROUTE_BY_TARGET: Record<NavTarget, "/" | "/plan" | "/progress"> = {
