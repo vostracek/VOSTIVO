@@ -37,6 +37,12 @@ export interface AuthSessionSource {
   recoverFromUnauthorized?(rejectedAccessToken: string): Promise<UnauthorizedRecovery>;
   /** The session keeps being refused even after a refresh: drop it locally as `SESSION_INVALID`. */
   markSessionInvalid?(): Promise<void>;
+  /**
+   * Auth Slice D — an explicit, athlete-initiated sign-out of THIS device's
+   * session (loss `SIGNED_OUT`). Sources without real sign-in (dev tokens)
+   * omit it, and the Account screen then offers no sign-out.
+   */
+  signOut?(): Promise<void>;
 }
 
 export type SessionLoss = "SIGNED_OUT" | "SESSION_INVALID";

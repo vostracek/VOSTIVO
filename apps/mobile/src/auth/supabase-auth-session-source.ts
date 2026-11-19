@@ -128,7 +128,21 @@ export class SupabaseAuthSessionSource implements AuthSessionSource, EmailOtpSig
     this.notifyIfChanged(null);
   }
 
-  /** Low-level sign-out primitive (the Account UX is Slice D). Local scope: this device's session only. */
+  /**
+   * Auth Slice D — the signed-in email for the Account identity line, from
+   * the SDK's current session; `null` when unknown/unreadable. Never throws,
+   * never logs it.
+   */
+  async accountEmail(): Promise<string | null> {
+    try {
+      const { data } = await withRequestTimeout(this.sessionReadTimeoutMs, () => this.auth.getSession());
+      return data.session?.user.email ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Explicit sign-out (Auth Slice D; the IdentityGate disposes the owner first). Local scope: this device's session only. */
   async signOut(): Promise<void> {
     this.userSignOutPending = true;
     const { error } = await this.auth.signOut({ scope: "local" });

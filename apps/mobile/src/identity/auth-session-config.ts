@@ -24,7 +24,12 @@ export interface AuthSessionEnvironment {
 }
 
 /** The Supabase-backed session source as the wiring needs it (built by `createSupabaseAuthSessionSource` in the app, a fake in tests). */
-export type SupabaseSessionSource = AuthSessionSource & EmailOtpSignIn & { attachAppLifecycle(lifecycle: AppLifecycleSource): () => void };
+export type SupabaseSessionSource = AuthSessionSource &
+  EmailOtpSignIn & {
+    attachAppLifecycle(lifecycle: AppLifecycleSource): () => void;
+    /** Auth Slice D: the signed-in email for the Account identity line. */
+    accountEmail?(): Promise<string | null>;
+  };
 
 export interface AuthSessionWiring {
   readonly source: AuthSessionSource;

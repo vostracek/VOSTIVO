@@ -1,8 +1,9 @@
 /**
  * Bottom-nav destinations, kept free of React Native so the routing table
- * is unit-tested. `target: null` = visible but not available yet (Profile).
+ * is unit-tested. `target: null` = visible but not available yet (none
+ * since Profile V1; the semantics stay for any future placeholder).
  */
-export type NavTarget = "today" | "plan" | "progress";
+export type NavTarget = "today" | "plan" | "progress" | "profile";
 
 export interface NavItem {
   readonly label: string;
@@ -15,18 +16,19 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: "Today", target: "today", icon: "today" },
   { label: "Plan", target: "plan", icon: "plan" },
   { label: "Progress", target: "progress", icon: "progress" },
-  { label: "Profile", target: null, icon: "profile" },
+  { label: "Profile", target: "profile", icon: "profile" },
 ];
 
-export const ROUTE_BY_TARGET: Record<NavTarget, "/" | "/plan" | "/progress"> = {
+export const ROUTE_BY_TARGET: Record<NavTarget, "/" | "/plan" | "/progress" | "/profile"> = {
   today: "/",
   plan: "/plan",
   progress: "/progress",
+  profile: "/profile",
 };
 
 /**
  * ANDROID-STAB-03 D4: the screen-reader semantics of one nav item, framework-free so they are unit-tested.
- * A not-yet-available item (Profile) is ONE focusable element that says so —
+ * A not-yet-available item is ONE focusable element that says so —
  * no button role (nothing would happen), `disabled` state — instead of a
  * bare text node whose label was never exposed.
  */

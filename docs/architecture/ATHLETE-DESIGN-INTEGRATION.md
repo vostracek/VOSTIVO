@@ -75,6 +75,25 @@ design (not the marketing website).
    model and can legitimately differ from the strip (calendar week vs. plan
    cycle).
 
+## Profile V1 + Account (PR B)
+
+Canvas structure kept (title, identity block, titled sections of icon rows
+with hairlines); content limited to V1 facts:
+
+| Canvas element | V1 |
+|---|---|
+| Name ("Lukáš") | **Not in the domain** → identity title = current block goal |
+| Goal · mode · days/week | block goal, `/me` experience mode, block days/week |
+| Training Profile | read-only rows: Current block, Experience mode, Units, Training time zone ("Not set yet" when null) |
+| Gyms & Equipment, Restrictions & Preferences, Other Sports | omitted — no V1 contract |
+| Coaching, Vostivo Pro | omitted — no coaching / billing |
+| Notifications, Integrations, Data & Privacy rows | omitted — none exist |
+| Account | email (OTP builds) or "Developer sign-in"; Sign out when supported (Auth Slice D, spec §28) |
+| App | version + non-production build marker |
+
+Rows are read-only (no chevron, nothing to tap) — the only action is Sign
+out. The unsynced-work confirmation is a Foundations-derived sheet.
+
 ## Device QA (Huawei P20 Pro, Android 10, 2026-11-19)
 
 Test package `com.vostivo.qa.adf01` (dev client, Metro), isolated athlete

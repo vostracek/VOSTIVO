@@ -433,6 +433,26 @@ describe("CC-03 D-SYNC-1 outbox recovery (real SyncEngine + real SQLite)", () =>
     expect(await repository.getPendingCommands(25)).toEqual([]);
   });
 
+  it("AUTH-LOCAL-004a: the sign-out check counts unsynced commands and an ACTIVE workout; synced and final outcomes do not count", async () => {
+    expect(await repository.getUnsyncedWorkSummary()).toEqual({ pendingCommands: 0, hasActiveWorkout: false });
+    await loggedSession(2, { finish: false });
+    const waiting = rows().filter((row) => ["PENDING", "RETRY", "SYNCING", "BLOCKED"].includes(row.status)).length;
+    expect(waiting).toBeGreaterThanOrEqual(3);
+    expect(await repository.getUnsyncedWorkSummary()).toEqual({ pendingCommands: waiting, hasActiveWorkout: true });
+
+    await drain(engine());
+    // Synced, but the workout itself is still open on this phone.
+    expect(await repository.getUnsyncedWorkSummary()).toEqual({ pendingCommands: 0, hasActiveWorkout: true });
+  });
+
+  it("AUTH-LOCAL-004b: a REJECTED command is a final server outcome — it no longer counts as waiting to sync", async () => {
+    const finished = await loggedSession(1, { finish: true });
+    expect(await repository.getUnsyncedWorkSummary()).toMatchObject({ hasActiveWorkout: false });
+    server.forcedOutcome.set(finished.finish!, "REJECTED");
+    await drain(engine());
+    expect(await repository.getUnsyncedWorkSummary()).toEqual({ pendingCommands: 0, hasActiveWorkout: false });
+  });
+
   it("CC03-SYNC-014: no recovery path deletes or rewrites local workout data or outbox payloads", async () => {
     await loggedSession(2);
     await loggedSession(1);
