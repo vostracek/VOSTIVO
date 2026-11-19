@@ -1117,3 +1117,36 @@ Acceptance findings (2026-10-26 triage; none blocks Slice C closure):
   `-no-snapshot`; with Quickboot save enabled its file-backed guest RAM
   wrote ~64 MB/s to the host SSD and froze the desktop.
 
+
+## 28. Slice D — Sign-out + Minimal Account: implementation (2026-11-19) — IMPLEMENTED, human acceptance PENDING
+
+Implemented with Athlete Design Integration 01 (Profile V1 = the Account
+surface, decision D-7).
+
+- **Order (§10):** `IdentityGateController.signOut()` is serialized with
+  every other evaluation: detach the READY tree (state VERIFYING) → dispose
+  the owner's runtime (sync coordinator stopped, SQLCipher DB closed,
+  awaited) → `supabase.auth.signOut({ scope: "local" })` → re-evaluate (no
+  session → SIGNED_OUT). Teardown order is asserted in a test
+  (`state:VERIFYING`, `dispose:A`, `signOut`).
+- **Nothing is deleted.** The owner's database file, key and sub→userId
+  binding stay; the same athlete signing back in reopens the same data and
+  any outbox commands sync as that athlete.
+- **Unsynced-work check:** outbox PENDING/RETRY/SYNCING/BLOCKED + an ACTIVE
+  workout. Non-zero → one bounded sync pass (10 s; offline never blocks) →
+  still non-zero → calm confirmation ("Your workout hasn't synced yet." /
+  Stay signed in / Sign out). A failing local check asks rather than
+  signing out silently.
+- **Refusal:** if the provider refuses, the still-valid session reopens the
+  same owner and the Profile shows a calm retry message.
+- **Dev-token builds** have no `signOut` on the session source → no Sign
+  out control (an explanatory row instead).
+- **Account line:** the email from the SDK session (never logged, never
+  throws) or "Developer sign-in".
+
+Tests: AUTH-SO-001..006, AUTH-LOCAL-004a/b, IdentityGate Slice D (teardown
+order, same-owner re-sign-in, refused sign-out, dev source).
+
+**Not yet done (Slice E):** device acceptance of sign-out needs a Supabase
+email-OTP build (a human must receive the OTP); the QA device build of
+2026-11-19 used a developer token, so sign-out was verified by tests only.

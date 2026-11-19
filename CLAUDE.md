@@ -1613,7 +1613,12 @@ Auth & Local Athlete Boundary V1: Phase 0 COMPLETE; decisions D-1..D-9
                                   owner = Slice B transition; offline-bound
                                   boot re-verifies `/me` on network regain /
                                   foreground before syncing. Spec §27.
-  - Slice D — Sign-out + Minimal Account: not started.
+  - Slice D — Sign-out + Minimal Account: IMPLEMENTED (2026-11-19, with
+                                  Profile V1); dispose owner -> local
+                                  sign-out -> SIGNED_OUT, nothing deleted,
+                                  unsynced-work confirmation. Device
+                                  acceptance pending a Supabase OTP build
+                                  (spec §28).
   - Slice E — Human Acceptance + Final Closure: not started.
 
 Exercise & Equipment Reference Catalog V1: CLOSED. Code-owned reference data
@@ -1811,6 +1816,8 @@ Athlete Design Integration 01:   PR A (Foundations V1 tokens + Archivo +
                                   API or sync change. Deviations, omitted
                                   canvas elements and the light-mode gap:
                                   docs/architecture/ATHLETE-DESIGN-INTEGRATION.md.
+                                  PR B: Profile V1 (real Profile tab, /me +
+                                  plan facts only) + Auth Slice D sign-out.
 ```
 
 ```text
