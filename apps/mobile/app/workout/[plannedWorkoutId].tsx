@@ -228,13 +228,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   startButton: {
-    backgroundColor: colors.signal,
-    borderRadius: radius.pill,
-    minHeight: 44,
+    backgroundColor: colors.primaryAction,
+    borderRadius: radius.awSurface,
+    minHeight: touchTarget.primary,
     alignItems: "center",
     justifyContent: "center",
   },
   startButtonPressed: { opacity: 0.85 },
   startButtonDisabled: { opacity: 0.6 },
-  startButtonText: { ...typography.bodyStrong, color: colors.signalText },
+  startButtonText: { ...typography.awButtonLabelPrimary, textTransform: "uppercase", color: colors.primaryActionText },
 });
