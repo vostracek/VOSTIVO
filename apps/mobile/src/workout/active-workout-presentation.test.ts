@@ -31,4 +31,10 @@ describe("Active Workout v2 presentation (Design Integration 01)", () => {
     const source = readFileSync(new URL("../../app/active-workout.tsx", import.meta.url), "utf8");
     for (const forbidden of ["RIR", "Swap", "Pain", "Why?"]) expect(source).not.toMatch(new RegExp(`["'>]${forbidden.replace("?", "\\\\?")}`));
   });
+
+  it("DI-AW-004: the Finish sheet clears the Android navigation bar (absolute overlay adds the bottom safe-area inset)", () => {
+    // Found on the Huawei P20 Pro: the overlay ignores the SafeAreaView padding, so the buttons sat under the nav bar.
+    const source = readFileSync(new URL("../../app/active-workout.tsx", import.meta.url), "utf8");
+    expect(source).toMatch(/function FinishConfirmSheet[\s\S]*?useSafeAreaInsets\(\)[\s\S]*?paddingBottom: spacing\.xl \+ insets\.bottom/);
+  });
 });

@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import type { ExternalWeightLoad, PrescribedExerciseV1, PrescribedSetV1 } from "@vostivo/domain";
 import { useAthleteRuntime } from "../src/identity/athlete-runtime-context";
@@ -844,9 +844,12 @@ function SetRow({
 }
 
 function FinishConfirmSheet({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }): React.JSX.Element {
+  // The overlay is absolutely positioned, so it ignores the screen's SafeAreaView
+  // padding: clear the Android navigation bar / home indicator explicitly.
+  const insets = useSafeAreaInsets();
   return (
     <View style={styles.sheetOverlay}>
-      <LinearGradient colors={["#16191C", "#111416"]} style={styles.sheet}>
+      <LinearGradient colors={["#16191C", "#111416"]} style={[styles.sheet, { paddingBottom: spacing.xl + insets.bottom }]}>
         <View style={styles.sheetGrabber} />
         <Text style={styles.sheetTitle}>Finish with sets remaining?</Text>
         <Text style={styles.sheetBody}>Not every planned set is complete yet. You can still finish now.</Text>
