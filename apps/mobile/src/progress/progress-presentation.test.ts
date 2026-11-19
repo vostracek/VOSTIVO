@@ -6,6 +6,7 @@ import {
   formatDuration,
   formatLocalDay,
   formatSets,
+  comparisonBars,
   improvementView,
   progressInterpretation,
   shouldOfferWorkoutHistory,
@@ -199,5 +200,22 @@ describe("formatting", () => {
     expect(formatDuration(2400)).toBe("40 min");
     expect(formatDuration(3600)).toBe("1 h");
     expect(formatDuration(3900)).toBe("1 h 5 min");
+  });
+});
+
+describe("comparison bars (Design Integration 01)", () => {
+  const load = (amountMilli: number, unit: "KG" | "LB" = "KG") => ({ kind: "EXTERNAL_WEIGHT" as const, amountMilli, unit, basis: "TOTAL" as const });
+
+  it("DI-PROG-001: both bars share one scale built only from the two real loads", () => {
+    const bars = comparisonBars({ fromLoad: load(60_000), toLoad: load(62_500) });
+    expect(bars).not.toBeNull();
+    expect(bars!.currentRatio).toBe(1);
+    expect(bars!.previousRatio).toBeCloseTo(0.96, 2);
+    expect(bars!.previousLabel).not.toEqual(bars!.currentLabel);
+  });
+
+  it("DI-PROG-002: mixed units or non-positive loads hide the bars instead of guessing", () => {
+    expect(comparisonBars({ fromLoad: load(60_000, "KG"), toLoad: load(135_000, "LB") })).toBeNull();
+    expect(comparisonBars({ fromLoad: load(0), toLoad: load(2_500) })).toBeNull();
   });
 });

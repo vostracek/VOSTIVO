@@ -1,13 +1,17 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { colors, radius, spacing, touchTarget, typography } from "../design/tokens";
+import { radius, semantic, spacing, touchTarget, type } from "../design/tokens";
+import { SecondaryButton as FoundationSecondaryButton } from "../ui/primitives";
 import type { WorkoutRowView } from "./progress-presentation";
 
 /**
  * Progress & Feedback V1 — Slice B: the few presentational pieces the
- * Progress screens share. Refined Dark base tokens only (the same keys
- * Plan/Preview use); `signal` lime is reserved for the current week marker
- * — never for success or decoration.
+ * Progress screens share. Athlete Design Integration 01: restyled to the
+ * approved Progress canvas / Foundations V1 — hairline rows and flat
+ * panels instead of bordered boxes; `signal` lime only for the current
+ * week marker — never for success or decoration. The drill-downs
+ * (history, workout detail, exercise) have no approved canvas: their
+ * look is Foundations-derived through these shared styles.
  */
 
 /** Drill-down header, same convention as Workout Preview: a plain "‹ Back", no bottom nav. */
@@ -15,7 +19,7 @@ export function BackHeader(): React.JSX.Element {
   const router = useRouter();
   return (
     <Pressable onPress={() => router.back()} style={progressStyles.backButton} accessibilityRole="button" accessibilityLabel="Back">
-      <Text style={progressStyles.backButtonText}>‹ Back</Text>
+      <Text style={progressStyles.backButtonText}>‹  Back</Text>
     </Pressable>
   );
 }
@@ -32,18 +36,7 @@ export function StateMessage({ title, body, actionLabel, onAction }: { title: st
 }
 
 export function SecondaryButton({ label, onPress, disabled = false, accessibilityLabel }: { label: string; onPress: () => void; disabled?: boolean; accessibilityLabel?: string }): React.JSX.Element {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={({ pressed }) => [progressStyles.secondaryButton, (pressed || disabled) && progressStyles.pressed]}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityState={{ disabled, busy: disabled }}
-    >
-      <Text style={progressStyles.secondaryButtonText}>{label}</Text>
-    </Pressable>
-  );
+  return <FoundationSecondaryButton label={label} onPress={onPress} loading={disabled} accessibilityLabel={accessibilityLabel} style={progressStyles.secondaryButton} />;
 }
 
 /** "this history item isn't available" — 404 never says whether it is unknown, foreign or not visible. */
@@ -70,6 +63,7 @@ export function WorkoutRow({ row, onPress }: { row: WorkoutRowView; onPress: () 
       <View style={progressStyles.rowHeader}>
         <Text style={progressStyles.rowTitle}>{row.title}</Text>
         <Text style={progressStyles.rowMeta}>{row.dateLabel}</Text>
+        <Text style={progressStyles.chevron}>›</Text>
       </View>
       <Text style={progressStyles.captionText}>
         {row.setsLabel} · {row.completionLabel}
@@ -88,80 +82,66 @@ export function WorkoutRow({ row, onPress }: { row: WorkoutRowView; onPress: () 
 }
 
 export const progressStyles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.background },
+  safeArea: { flex: 1, backgroundColor: semantic.bgApp },
   scroll: { flex: 1 },
-  scrollContent: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
-  screenTitle: { ...typography.title, color: colors.textPrimary, paddingTop: spacing.md },
-  headline: { ...typography.heading, fontSize: 22, color: colors.textPrimary },
-  secondaryText: { ...typography.body, color: colors.textSecondary },
-  captionText: { ...typography.caption, color: colors.textSecondary },
-  tertiaryText: { ...typography.caption, color: colors.textTertiary },
-  sectionHeading: { ...typography.heading, color: colors.textPrimary, marginTop: spacing.sm },
-  section: { gap: spacing.sm },
+  scrollContent: { flexGrow: 1, paddingHorizontal: spacing.screenGutter, paddingBottom: spacing.bottomClearance, gap: spacing.sectionRhythm },
+  screenTitle: { ...type.pageTitle, color: semantic.textPrimary, paddingTop: spacing.xl },
+  headline: { ...type.sessionTitle, color: semantic.textPrimary },
+  secondaryText: { ...type.body, color: semantic.textTertiary },
+  captionText: { ...type.body, color: semantic.textMuted },
+  tertiaryText: { ...type.body, color: semantic.textMuted },
+  sectionHeading: { ...type.microLabel, color: semantic.textMuted },
+  section: { gap: spacing.md },
+  /** Flat grouped panel (Foundations §06 "surface / panel") — no gradient, no shadow. */
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
+    backgroundColor: semantic.surfacePanel,
+    borderRadius: radius.surface,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     gap: spacing.xs,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    borderColor: semantic.borderDefault,
   },
   row: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
     paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    minHeight: touchTarget.minHeight,
-    gap: 2,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    minHeight: 48,
+    gap: 3,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: semantic.borderHairline,
   },
-  rowHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
-  rowTitle: { ...typography.bodyStrong, color: colors.textPrimary, flexShrink: 1 },
-  rowMeta: { ...typography.caption, color: colors.textSecondary, flexShrink: 0 },
-  pressed: { opacity: 0.75 },
+  rowHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
+  rowTitle: { ...type.bodyStrong, fontSize: 15, color: semantic.textPrimary, flex: 1 },
+  rowMeta: { ...type.labelValue, color: semantic.textMuted, flexShrink: 0, fontVariant: ["tabular-nums"] },
+  chevron: { ...type.button, fontSize: 17, color: semantic.ornamentFaint },
+  pressed: { opacity: 0.7 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.xs },
   chip: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    borderRadius: radius.awMicro,
+    backgroundColor: semantic.surfaceInteractive,
   },
-  chipText: { ...typography.tiny, color: colors.textSecondary },
-  change: { ...typography.heading, color: colors.textPrimary },
+  chipText: { ...type.labelValue, fontSize: 11, color: semantic.textTertiary },
+  change: { ...type.numeric, color: semantic.textPrimary },
   backButton: { alignSelf: "flex-start", minHeight: touchTarget.minHeight, justifyContent: "center", paddingTop: spacing.sm },
-  backButtonText: { ...typography.bodyStrong, color: colors.textPrimary },
+  backButtonText: { ...type.button, fontSize: 14, color: semantic.textSecondary },
   stateMessage: { paddingTop: spacing.xl, gap: spacing.sm, alignItems: "flex-start" },
-  stateTitle: { ...typography.heading, color: colors.textPrimary },
-  secondaryButton: {
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    minHeight: touchTarget.minHeight,
-    justifyContent: "center",
-    alignSelf: "flex-start",
-  },
-  secondaryButtonText: { ...typography.bodyStrong, color: colors.textPrimary },
+  stateTitle: { ...type.sessionTitle, color: semantic.textPrimary },
+  secondaryButton: { marginTop: spacing.sm, alignSelf: "flex-start" },
   loadingBlocks: { gap: spacing.md, paddingTop: spacing.sm },
-  loadingBlock: { height: 64, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  loadingBlockTall: { height: 96 },
+  loadingBlock: { height: 56, borderRadius: radius.input, backgroundColor: semantic.surfaceInteractive },
+  loadingBlockTall: { height: 88 },
   cardSection: { gap: spacing.xs, minHeight: touchTarget.minHeight },
   nextWorkoutLink: {
-    marginTop: spacing.sm,
-    paddingTop: spacing.sm,
+    marginTop: spacing.xs,
+    paddingTop: spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+    borderTopColor: semantic.borderHairline,
     minHeight: touchTarget.minHeight,
     justifyContent: "center",
     gap: 2,
   },
-  linkText: { ...typography.bodyStrong, color: colors.textPrimary },
+  linkText: { ...type.button, color: semantic.textSecondary },
   markerRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  currentMarker: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.signal },
+  currentMarker: { width: 5, height: 5, borderRadius: 3, backgroundColor: semantic.signal },
 });
